@@ -1,0 +1,63 @@
+{
+    "name": "srm-panel-backend",
+    "version": "1.0.0",
+    "description": "SRM Panel Backend Server with Socket.IO and Multi-Database Provider Support",
+    "main": "dist/index.js",
+    "scripts": {
+        "dev": "tsx watch src/index.ts",
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "lint": "eslint src --ext .ts",
+        "test": "jest",
+        "prisma:generate": "prisma generate",
+        "prisma:migrate": "prisma migrate dev",
+        "prisma:studio": "prisma studio"
+    },
+    "keywords": [
+        "srm",
+        "backend",
+        "socket.io",
+        "express",
+        "typescript"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "@prisma/client": "^5.22.0",
+        "@supabase/supabase-js": "^2.49.1",
+        "@types/bcryptjs": "^2.4.6",
+        "axios": "^1.7.9",
+        "bcrypt": "^5.1.1",
+        "bcryptjs": "^3.0.3",
+        "bull": "^4.16.3",
+        "compression": "^1.7.5",
+        "cors": "^2.8.5",
+        "date-fns": "^4.1.0",
+        "dotenv": "^16.4.7",
+        "express": "^4.21.2",
+        "express-rate-limit": "^7.5.0",
+        "googleapis": "^144.0.0",
+        "helmet": "^8.0.0",
+        "ioredis": "^5.4.2",
+        "jsonwebtoken": "^9.0.2",
+        "morgan": "^1.10.0",
+        "socket.io": "^4.8.1",
+        "winston": "^3.17.0",
+        "zod": "^3.24.1"
+    },
+    "devDependencies": {
+        "@types/bcrypt": "^5.0.2",
+        "@types/compression": "^1.7.5",
+        "@types/cors": "^2.8.17",
+        "@types/express": "^5.0.0",
+        "@types/jsonwebtoken": "^9.0.7",
+        "@types/morgan": "^1.9.9",
+        "@types/node": "^22.10.5",
+        "@typescript-eslint/eslint-plugin": "^8.19.1",
+        "@typescript-eslint/parser": "^8.19.1",
+        "eslint": "^9.18.0",
+        "prisma": "^5.22.0",
+        "tsx": "^4.19.2",
+        "typescript": "^5.7.2"
+    }
+}

@@ -1,0 +1,120 @@
+{
+  "global_config": [
+    {
+      "id": "1",
+      "config_key": "boom_api",
+      "config_value": {
+        "apiKey": "",
+        "baseUrl": "",
+        "enabled": false
+      },
+      "updated_by": null,
+      "created_at": "2026-01-29T21:40:04.523Z",
+      "updated_at": "2026-01-29T21:40:04.523Z"
+    },
+    {
+      "id": "2",
+      "config_key": "osint",
+      "config_value": {
+        "enabled": false,
+        "providers": []
+      },
+      "updated_by": null,
+      "created_at": "2026-01-29T21:40:04.523Z",
+      "updated_at": "2026-01-29T21:40:04.523Z"
+    },
+    {
+      "id": "3",
+      "config_key": "universal_firebase",
+      "config_value": {
+        "config": {},
+        "enabled": false
+      },
+      "updated_by": null,
+      "created_at": "2026-01-29T21:40:04.523Z",
+      "updated_at": "2026-01-29T21:40:04.523Z"
+    }
+  ],
+  "database_providers": [],
+  "app_builder_apps": [],
+  "user_settings": [],
+  "users": [
+    {
+      "id": "95261656-4b49-4e13-bd3c-50a451425b68",
+      "email": "admin@example.com",
+      "password_hash": "$2a$10$rOvHJZZxVYQkGlKSG5YHZeYxqKJ5vJ5qJ5vJ5qJ5vJ5qJ5vJ5qJ5u",
+      "role": "admin",
+      "created_at": "2026-01-28T19:18:09.384Z",
+      "updated_at": "2026-01-28T19:18:09.384Z"
+    },
+    {
+      "id": "85d61b29-9e99-4b1f-82ec-c25a4faee8ee",
+      "email": "test@example.com",
+      "password_hash": "$2a$10$nNJXEgQUiyVBg8quAwAGvuANcD2VAxbRitWT.2.KmVP3aZfED9umS",
+      "role": "user",
+      "created_at": "2026-01-28T19:22:12.036Z",
+      "updated_at": "2026-01-28T19:22:12.036Z"
+    }
+  ],
+  "cloud_phone_api_profiles": [
+    {
+      "id": "617e3e4d-d87b-478c-a4bf-a8fdd791bea8",
+      "user_id": "12",
+      "name": "David",
+      "api_key": "A1Z46QDTMHTP6B3KNW8VU4IYP7G74KSG",
+      "trace_id": "",
+      "is_active": true,
+      "is_default": true,
+      "created_at": "2026-01-29T21:46:15.266Z",
+      "updated_at": "2026-01-29T21:46:15.266Z"
+    }
+  ],
+  "device_commands": [
+    {
+      "id": "adc31d56-780c-4322-9b93-c45ef1dd2283",
+      "device_id": "dj9xu9euende9udn3",
+      "command": "PING",
+      "payload": null,
+      "status": "delivered",
+      "created_at": "2026-01-11T19:31:45.660Z",
+      "delivered_at": null,
+      "executed_at": null
+    },
+    {
+      "id": "26df2b5e-2e50-42ed-8de0-32db1e76d709",
+      "device_id": "dj9xu9euende9udn3",
+      "command": "PING",
+      "payload": null,
+      "status": "delivered",
+      "created_at": "2026-01-11T19:32:14.728Z",
+      "delivered_at": null,
+      "executed_at": null
+    },
+    {
+      "id": "de17ed7d-9e02-4418-a22e-e08004ddd061",
+      "device_id": "a0f9e05e8a401694efac48c06f42279a8e99bf88d8450da9a745c54b161df11c",
+      "command": "PING",
+      "payload": null,
+      "status": "delivered",
+      "created_at": "2026-01-17T13:33:52.452Z",
+      "delivered_at": null,
+      "executed_at": null
+    },
+    {
+      "id": "8dce1d4c-e645-4d22-9bd5-70d17f1ee79b",
+      "device_id": "e31dd6ca2cc47b67",
+      "command": "send_sms",
+      "payload": {
+        "message": "Hello from SIM hey loloa",
+        "sim_index": 0,
+        "phone_number": "+12224567890"
+      },
+      "status": "executed",
+      "created_at": "2026-01-19T11:55:11.749Z",
+      "delivered_at": null,
+      "executed_at": null
+    }
+  ],
+  "user_action_logs": [],
+  "two_factor_codes": []
+}

