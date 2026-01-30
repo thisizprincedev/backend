@@ -69,7 +69,23 @@ const config: Config = {
 
     firebase: {
         serviceAccount: process.env.FIREBASE_SERVICE_ACCOUNT
-            ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+            ? (() => {
+                try {
+                    let jsonString = process.env.FIREBASE_SERVICE_ACCOUNT!;
+                    // Handle double-escaped JSON from deployment platforms
+                    // Remove leading/trailing spaces and handle escaped quotes
+                    jsonString = jsonString.trim();
+                    // If the string starts with escaped quotes, unescape them
+                    if (jsonString.includes('\\"')) {
+                        jsonString = jsonString.replace(/\\"/g, '"');
+                    }
+                    return JSON.parse(jsonString);
+                } catch (error) {
+                    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT:', error);
+                    console.error('Raw value:', process.env.FIREBASE_SERVICE_ACCOUNT);
+                    return null;
+                }
+            })()
             : null,
     },
 
