@@ -169,7 +169,7 @@ router.patch('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Respon
 
     logger.info(`Cloud phone profile updated: ${id} by user ${userId}`);
 
-    res.json({
+    return res.json({
         success: true,
         profile: {
             id: profile.id,
@@ -213,7 +213,7 @@ router.post('/:id/activate', ...adminOnly, asyncHandler(async (req: Request, res
 
     logger.info(`Cloud phone profile activated: ${id} for user ${userId}`);
 
-    res.json({
+    return res.json({
         success: true,
         profile: {
             id: profile.id,
@@ -246,7 +246,7 @@ router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Respo
 
     logger.info(`Cloud phone profile deleted: ${id} by user ${userId}`);
 
-    res.json({
+    return res.json({
         success: true,
         message: 'Profile deleted successfully',
     });

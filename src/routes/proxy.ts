@@ -55,7 +55,7 @@ router.post('/lookup', authenticate, asyncHandler(async (req: Request, res: Resp
             });
         }
 
-        res.json({
+        return res.json({
             success: true,
             host: hostPart,
             ip: data.query,
@@ -71,7 +71,7 @@ router.post('/lookup', authenticate, asyncHandler(async (req: Request, res: Resp
         });
     } catch (error: any) {
         logger.error('Proxy lookup error:', error.message);
-        res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, error: error.message });
     }
 }));
 

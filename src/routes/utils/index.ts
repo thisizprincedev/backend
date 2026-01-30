@@ -22,10 +22,10 @@ router.post('/telegram', authenticate, asyncHandler(async (req: Request, res: Re
 
     try {
         await telegramService.sendNotification(message, chatId);
-        res.json({ success: true });
+        return res.json({ success: true });
     } catch (error: any) {
         logger.error('Telegram send error:', error.message);
-        res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, error: error.message });
     }
 }));
 
@@ -53,7 +53,7 @@ router.post('/sync', authenticate, asyncHandler(async (req: Request, res: Respon
         return res.status(500).json({ success: false, error: 'Failed to sync profile' });
     }
 
-    res.json({ success: true });
+    return res.json({ success: true });
 }));
 
 /**
@@ -73,24 +73,29 @@ router.post('/log', authenticate, asyncHandler(async (req: Request, res: Respons
         return res.status(400).json({ success: false, error: 'Action required' });
     }
 
-    const { error } = await supabase
-        .from('user_action_logs')
-        .insert({
-            user_id: userId,
-            action,
-            resource_type: resourceType,
-            resource_id: resourceId,
-            details,
-            ip_address: req.ip,
-            user_agent: req.headers['user-agent'],
-        });
+    try { // Added try block
+        const { error } = await supabase
+            .from('user_action_logs')
+            .insert({
+                user_id: userId,
+                action,
+                resource_type: resourceType,
+                resource_id: resourceId,
+                details,
+                ip_address: req.ip,
+                user_agent: req.headers['user-agent'],
+            });
 
-    if (error) {
+        if (error) {
+            logger.error('Audit log error:', error);
+            return res.status(500).json({ success: false, error: 'Failed to log action' });
+        }
+
+        return res.json({ success: true });
+    } catch (error: any) { // Added catch block
         logger.error('Audit log error:', error);
         return res.status(500).json({ success: false, error: 'Failed to log action' });
     }
-
-    res.json({ success: true });
 }));
 
 /**
@@ -187,7 +192,7 @@ router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Respons
         enrichedLogs = []; // No logs, so no enriched logs
     }
 
-    res.json({
+    return res.json({
         success: true,
         logs: enrichedLogs,
         pagination: {

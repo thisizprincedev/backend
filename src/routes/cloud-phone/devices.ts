@@ -218,16 +218,16 @@ router.post('/bulk/auto-forward', ...adminOnly, asyncHandler(async (req: Request
 
     logger.info(`Bulk auto-forward ${enabled ? 'enabled' : 'disabled'} for ${phoneIds.length} devices`);
 
-    return res.json({
-        success: true,
-        message: `Auto-forward ${enabled ? 'enabled' : 'disabled'} for ${data.length} devices`,
-        updatedCount: data.length,
-    });
-
     // Emit real-time update for each device
     data.forEach((device: any) => {
         io.emit('device_change', { eventType: 'UPDATE', new: device });
         io.to(`device-${device.geelark_phone_id}`).emit('device_change', { eventType: 'UPDATE', new: device });
+    });
+
+    return res.json({
+        success: true,
+        message: `Auto-forward ${enabled ? 'enabled' : 'disabled'} for ${data.length} devices`,
+        updatedCount: data.length,
     });
 }));
 
@@ -247,14 +247,14 @@ router.delete('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request
 
     logger.info(`Device deleted: ${geelarkPhoneId}`);
 
+    // Emit real-time update
+    io.emit('device_change', { eventType: 'DELETE', old: { geelark_phone_id: geelarkPhoneId } });
+    io.to(`device-${geelarkPhoneId}`).emit('device_change', { eventType: 'DELETE', old: { geelark_phone_id: geelarkPhoneId } });
+
     res.json({
         success: true,
         message: 'Device deleted successfully',
     });
-
-    // Emit real-time update
-    io.emit('device_change', { eventType: 'DELETE', old: { geelark_phone_id: geelarkPhoneId } });
-    io.to(`device-${geelarkPhoneId}`).emit('device_change', { eventType: 'DELETE', old: { geelark_phone_id: geelarkPhoneId } });
 }));
 
 export default router;

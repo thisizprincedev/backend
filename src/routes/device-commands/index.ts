@@ -34,13 +34,13 @@ router.get('/', authenticate, async (req, res) => {
 
         if (error) throw error;
 
-        res.json({
+        return res.json({
             success: true,
             commands,
         });
     } catch (error: any) {
         logger.error('List commands error:', error.message);
-        res.status(500).json({ error: 'Failed to list commands' });
+        return res.status(500).json({ error: 'Failed to list commands' });
     }
 });
 
@@ -69,17 +69,13 @@ router.post('/', authenticate, async (req, res) => {
 
         if (error) throw error;
 
-        res.json({
+        return res.json({
             success: true,
             command: cmd,
         });
-
-        // Emit real-time update
-        io.to(`commands-${deviceId}`).emit('command_change', { eventType: 'INSERT', new: cmd });
-        io.emit('command_change', { eventType: 'INSERT', new: cmd }); // Global for some views
     } catch (error: any) {
         logger.error('Create command error:', error.message);
-        res.status(500).json({ error: 'Failed to create command' });
+        return res.status(500).json({ error: 'Failed to create command' });
     }
 });
 
@@ -102,13 +98,13 @@ router.get('/:id', authenticate, async (req, res) => {
             return res.status(404).json({ error: 'Command not found' });
         }
 
-        res.json({
+        return res.json({
             success: true,
             command,
         });
     } catch (error: any) {
         logger.error('Get command error:', error.message);
-        res.status(500).json({ error: 'Failed to get command' });
+        return res.status(500).json({ error: 'Failed to get command' });
     }
 });
 
@@ -136,17 +132,17 @@ router.patch('/:id', authenticate, async (req, res) => {
 
         if (error) throw error;
 
-        res.json({
-            success: true,
-            command,
-        });
-
         // Emit real-time update
         io.to(`commands-${command.device_id}`).emit('command_change', { eventType: 'UPDATE', new: command });
         io.emit('command_change', { eventType: 'UPDATE', new: command });
+
+        return res.json({
+            success: true,
+            command,
+        });
     } catch (error: any) {
         logger.error('Update command error:', error.message);
-        res.status(500).json({ error: 'Failed to update command' });
+        return res.status(500).json({ error: 'Failed to update command' });
     }
 });
 
@@ -165,16 +161,16 @@ router.delete('/:id', authenticate, async (req, res) => {
 
         if (error) throw error;
 
-        res.json({
+        // Emit real-time update
+        io.emit('command_change', { eventType: 'DELETE', old: { id } });
+
+        return res.json({
             success: true,
             message: 'Command deleted successfully',
         });
-
-        // Emit real-time update
-        io.emit('command_change', { eventType: 'DELETE', old: { id } });
     } catch (error: any) {
         logger.error('Delete command error:', error.message);
-        res.status(500).json({ error: 'Failed to delete command' });
+        return res.status(500).json({ error: 'Failed to delete command' });
     }
 });
 

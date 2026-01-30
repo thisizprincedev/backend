@@ -44,13 +44,13 @@ router.post('/proxy', asyncHandler(async (req: Request, res: Response) => {
             });
         }
 
-        res.json({
+        return res.json({
             success: true,
             data: result
         });
     } catch (error: any) {
         logger.error('Firebase proxy error:', error.message);
-        res.status(500).json({
+        return res.status(500).json({
             error: error.message || 'Firebase operation failed'
         });
     }

@@ -31,7 +31,7 @@ router.get('/analysis', authenticate, asyncHandler(async (req: Request, res: Res
 
     if (error) throw error;
 
-    res.json({
+    return res.json({
         success: true,
         analyses: analyses.map(analysis => ({
             id: analysis.id,
@@ -140,7 +140,7 @@ router.post('/analysis', authenticate, asyncHandler(async (req: Request, res: Re
 
     logger.info(`Transaction analysis saved: ${analysis.id} by user ${userId}, ${transactions.length} transactions`);
 
-    res.json({
+    return res.json({
         success: true,
         analysis: {
             id: analysis.id,
@@ -167,7 +167,7 @@ router.delete('/analysis/old/:days', authenticate, asyncHandler(async (req: Requ
     const userId = req.user!.id;
     const { databaseId } = req.query;
 
-    const daysNum = parseInt(days, 10);
+    const daysNum = parseInt(Array.isArray(days) ? days[0] : days, 10);
     if (isNaN(daysNum) || daysNum < 1) {
         return res.status(400).json({
             success: false,
@@ -194,7 +194,7 @@ router.delete('/analysis/old/:days', authenticate, asyncHandler(async (req: Requ
 
     logger.info(`Deleted ${count || 0} old transaction analyses (older than ${daysNum} days) for user ${userId}`);
 
-    res.json({
+    return res.json({
         success: true,
         message: `Deleted ${count || 0} old analyses`,
         deletedCount: count || 0,
@@ -224,7 +224,7 @@ router.delete('/analysis/all', authenticate, asyncHandler(async (req: Request, r
 
     logger.info(`Deleted all ${count || 0} transaction analyses for user ${userId}`);
 
-    res.json({
+    return res.json({
         success: true,
         message: `Deleted ${count || 0} analyses`,
         deletedCount: count || 0,

@@ -395,8 +395,11 @@ router.post('/:id/build', ...adminOnly, asyncHandler(async (req: Request, res: R
     const { id } = req.params;
     const userId = req.user!.id;
 
+    // Ensure id is a string
+    const appId = Array.isArray(id) ? id[0] : id;
+
     try {
-        await triggerGitHubBuild(id, userId);
+        await triggerGitHubBuild(appId, userId);
         return res.json({ success: true, message: 'Build triggered successfully' });
     } catch (error: any) {
         logger.error('Build trigger error:', error);
@@ -405,7 +408,7 @@ router.post('/:id/build', ...adminOnly, asyncHandler(async (req: Request, res: R
         if (error.response?.status === 404) errorMessage = 'GitHub repository/workflow not found.';
         if (error.response?.status === 401) errorMessage = 'Invalid GitHub Token.';
 
-        await supabase.from('app_builder_apps').update({ build_status: 'failed', build_error: errorMessage }).eq('id', id);
+        await supabase.from('app_builder_apps').update({ build_status: 'failed', build_error: errorMessage }).eq('id', appId);
         return res.status(500).json({ success: false, error: errorMessage });
     }
 }));
@@ -478,7 +481,6 @@ router.get('/:id/status', ...adminOnly, asyncHandler(async (req: Request, res: R
                 let newStatus = app.build_status;
                 let newCompletedAt = app.build_completed_at;
                 let newError = app.build_error;
-                let releaseUrl = null;
 
                 // Map GitHub status to App status
                 if (ghStatus === 'completed') {
@@ -502,8 +504,11 @@ router.get('/:id/status', ...adminOnly, asyncHandler(async (req: Request, res: R
 
                 // If status changed, update DB
                 if (newStatus !== app.build_status) {
+                    // Ensure id is a string
+                    const appId = Array.isArray(id) ? id[0] : id;
+
                     const updatedApp = await prisma.app_builder_apps.update({
-                        where: { id: id },
+                        where: { id: appId },
                         data: {
                             build_status: newStatus,
                             build_completed_at: newCompletedAt ? new Date(newCompletedAt) : null,
@@ -522,7 +527,7 @@ router.get('/:id/status', ...adminOnly, asyncHandler(async (req: Request, res: R
                         new: {
                             id: updatedApp.id,
                             build_status: updatedApp.build_status,
-                            github_run_id: updatedApp.github_run_id?.toString() || null,
+                            github_run_id: (updatedApp as any).github_run_id ? String((updatedApp as any).github_run_id) : null,
                             build_started_at: updatedApp.build_started_at?.toISOString() || null,
                             build_finished_at: updatedApp.build_completed_at?.toISOString() || null,
                             error_message: updatedApp.build_error
