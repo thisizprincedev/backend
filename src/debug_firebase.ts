@@ -1,5 +1,4 @@
 import dotenv from 'dotenv';
-import { google } from 'googleapis';
 import crypto from 'crypto';
 
 dotenv.config();
@@ -48,7 +47,7 @@ async function diagnose() {
 
         console.log('Base64 Part Length:', base64Part.length);
         console.log('Base64 Part End:', base64Part.substring(base64Part.length - 20));
-        console.log('Base64 Part End Codes:', Array.from(base64Part.substring(base64Part.length - 20)).map(c => c.charCodeAt(0)));
+        console.log('Base64 Part End Codes:', Array.from(base64Part.substring(base64Part.length - 20)).map((c: any) => c.charCodeAt(0)));
 
         if (base64Part.length % 4 !== 0) {
             console.warn(`WARNING: Base64 length is ${base64Part.length}, which is not a multiple of 4. This key is likely TRUNCATED.`);
