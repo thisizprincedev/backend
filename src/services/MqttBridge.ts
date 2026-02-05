@@ -17,10 +17,13 @@ export class MqttBridge {
         logger.info(`[MqttBridge] Connecting to MQTT Broker: ${config.mqtt.url}`);
 
         this.client = mqtt.connect(config.mqtt.url, {
-            username: config.nats.user,
-            password: config.nats.pass,
-            clientId: `backend_bridge_${config.env}`,
-            clean: true
+            username: config.mqtt.username || config.nats.user,
+            password: config.mqtt.password || config.nats.pass,
+            clientId: `backend_bridge_${config.env}_${Math.random().toString(16).slice(2, 8)}`,
+            clean: true,
+            connectTimeout: 30000, // 30 seconds
+            keepalive: 60,
+            reconnectPeriod: 5000, // 5 seconds between reconnection attempts
         });
 
         this.client.on('connect', () => {
@@ -40,6 +43,18 @@ export class MqttBridge {
 
         this.client.on('error', (err) => {
             logger.error(err, '[MqttBridge] MQTT Error');
+        });
+
+        this.client.on('reconnect', () => {
+            logger.warn('[MqttBridge] MQTT Reconnecting...');
+        });
+
+        this.client.on('offline', () => {
+            logger.warn('[MqttBridge] MQTT Client Offline');
+        });
+
+        this.client.on('close', () => {
+            logger.info('[MqttBridge] MQTT Connection Closed');
         });
     }
 
