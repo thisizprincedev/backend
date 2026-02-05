@@ -24,7 +24,7 @@ const httpServer = createServer(app);
 const io = initSocket(httpServer);
 
 // Trust proxy for rate limiting behind load balancers
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 
 // 🛡️ Guard first, then Bridge
 (async () => {
