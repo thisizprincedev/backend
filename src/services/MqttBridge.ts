@@ -16,21 +16,23 @@ export class MqttBridge {
         console.log(`📡 [MqttBridge] Initializing bridge for ${config.mqtt.url}`);
         logger.info(`[MqttBridge] Connecting to MQTT Broker: ${config.mqtt.url}`);
 
+        const username = config.mqtt.username || config.nats.user;
+
         this.client = mqtt.connect(config.mqtt.url, {
-            username: config.mqtt.username || config.nats.user,
+            username: username,
             password: config.mqtt.password || config.nats.pass,
-            clientId: `br_backend_${config.env}_${Math.random().toString(16).slice(2, 6)}`,
+            clientId: `b_${Math.random().toString(16).slice(2, 8)}`, // Very short ID
             clean: true,
             connectTimeout: 60000,
             keepalive: 60,
             reconnectPeriod: 5000,
-            protocolVersion: 4, // ⚠️ CRITICAL: Force MQTT 3.1.1 (Required for NATS)
+            protocolVersion: 4,
         });
 
         logger.info({
             url: config.mqtt.url,
             clientId: this.client.options.clientId,
-            username: config.mqtt.username || config.nats.user
+            username: username
         }, '[MqttBridge] Attempting MQTT connection...');
 
         this.client.on('connect', () => {
