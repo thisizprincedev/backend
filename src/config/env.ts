@@ -44,10 +44,8 @@ interface Config {
         password?: string;
     };
     nats: {
-        issuerPublicKey: string;
-        issuerSeed: string;
-        bridgePublicKey: string;
-        bridgeSeed: string;
+        user: string;
+        pass: string;
     };
     logging: {
         level: string;
@@ -123,10 +121,8 @@ const config: Config = {
         password: process.env.MQTT_PASSWORD,
     },
     nats: {
-        issuerPublicKey: process.env.NATS_ISSUER_PUBLIC_KEY || '',
-        issuerSeed: process.env.NATS_ISSUER_SEED || '',
-        bridgePublicKey: process.env.NATS_BRIDGE_PUBLIC_KEY || '',
-        bridgeSeed: process.env.NATS_BRIDGE_SEED || '',
+        user: process.env.NATS_USER || 'srm_admin',
+        pass: process.env.NATS_PASSWORD || 'strong_password_123',
     },
     logging: {
         level: process.env.LOG_LEVEL || 'info',

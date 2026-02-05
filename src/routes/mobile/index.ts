@@ -42,66 +42,6 @@ router.get('/mqtt-auth/:deviceId', asyncHandler(async (req: Request, res: Respon
     });
 }));
 
-/**
- * POST /api/v1/mobile/nats-auth-callout
- * NATS External Authorization handler
- * Scopes every device to its own MQTT topics
- */
-router.post('/nats-auth-callout', asyncHandler(async (req: Request, res: Response) => {
-    const { client_info } = req.body;
-
-    if (!client_info) {
-        return res.status(400).json({ error: 'Invalid NATS request' });
-    }
-
-    const { user: deviceId, pass: token } = client_info;
-
-    // ⚡ Case 1: The Backend Bridge (Super User)
-    // It uses a static username and the JWT_SECRET as password
-    if (deviceId === 'srm_backend_admin' && token === config.jwt.secret) {
-        logger.info(`[NATS Auth] Authorized System Admin (Backend Bridge)`);
-        return res.json({
-            allow: true,
-            user: 'srm_backend_admin',
-            permissions: {
-                pub: { allow: ['>'] }, // Can publish to everything
-                sub: { allow: ['>'] }  // Can see everything
-            }
-        });
-    }
-
-    try {
-        // ⚡ Case 2: Standard Device
-        // 1. Verify the JWT token
-        const decoded = jwt.verify(token, config.jwt.secret) as any;
-
-        // 2. Security Check: Ensure token matches the claiming device ID
-        if (decoded.sub !== deviceId) {
-            logger.warn(`[NATS Auth] Token/User mismatch: ${decoded.sub} vs ${deviceId}`);
-            return res.json({ allow: false, reason: 'Identity mismatch' });
-        }
-
-        logger.info(`[NATS Auth] Authorized device: ${deviceId}`);
-
-        // 3. Return Scoped Permissions (Zero Trust)
-        // Device can only see/talk to its own topics
-        return res.json({
-            allow: true,
-            user: deviceId,
-            permissions: {
-                pub: {
-                    allow: [`devices/${deviceId}/>`]
-                },
-                sub: {
-                    allow: [`devices/${deviceId}/>`]
-                }
-            }
-        });
-    } catch (err) {
-        logger.error(`[NATS Auth] Authentication failed for ${deviceId}:`, err);
-        return res.json({ allow: false, reason: 'Invalid or expired token' });
-    }
-}));
 
 /**
  * PUT /api/v1/mobile/devices/:deviceId

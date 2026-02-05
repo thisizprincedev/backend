@@ -12,8 +12,8 @@ export class MqttBridge {
 
         logger.info(`[MqttBridge] Connecting to MQTT Broker: ${config.mqtt.url}`);
         this.client = mqtt.connect(config.mqtt.url, {
-            username: 'srm_backend_admin',
-            password: config.jwt.secret, // Use the shared secret to authenticate
+            username: config.nats.user,
+            password: config.nats.pass,
             clientId: `backend_bridge_${config.env}`,
             clean: true
         });

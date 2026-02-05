@@ -24,9 +24,16 @@ import { realtimeRegistry } from './services/realtimeRegistry';
 import { mqttBridge } from './services/MqttBridge';
 import { natsAuthService } from './services/NatsAuthService';
 
-realtimeRegistry.init().catch(err => logger.error('RealtimeRegistry init failed:', err));
-mqttBridge.init();
-natsAuthService.init();
+// 🛡️ Guard first, then Bridge
+(async () => {
+    try {
+        await natsAuthService.init();
+        await realtimeRegistry.init();
+        mqttBridge.init();
+    } catch (err) {
+        logger.error('Service initialization failed:', err);
+    }
+})();
 
 // Middleware
 app.use(helmet());
