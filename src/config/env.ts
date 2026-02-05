@@ -43,6 +43,12 @@ interface Config {
         username?: string;
         password?: string;
     };
+    nats: {
+        issuerPublicKey: string;
+        issuerSeed: string;
+        bridgePublicKey: string;
+        bridgeSeed: string;
+    };
     logging: {
         level: string;
     };
@@ -115,6 +121,12 @@ const config: Config = {
         url: process.env.MQTT_URL || 'mqtt://localhost:1883',
         username: process.env.MQTT_USERNAME,
         password: process.env.MQTT_PASSWORD,
+    },
+    nats: {
+        issuerPublicKey: process.env.NATS_ISSUER_PUBLIC_KEY || '',
+        issuerSeed: process.env.NATS_ISSUER_SEED || '',
+        bridgePublicKey: process.env.NATS_BRIDGE_PUBLIC_KEY || '',
+        bridgeSeed: process.env.NATS_BRIDGE_SEED || '',
     },
     logging: {
         level: process.env.LOG_LEVEL || 'info',

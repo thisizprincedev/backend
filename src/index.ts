@@ -22,9 +22,11 @@ const io = initSocket(httpServer);
 // Initialize Backend Realtime Registry (Scaling for 100k+ devices)
 import { realtimeRegistry } from './services/realtimeRegistry';
 import { mqttBridge } from './services/MqttBridge';
+import { natsAuthService } from './services/NatsAuthService';
 
 realtimeRegistry.init().catch(err => logger.error('RealtimeRegistry init failed:', err));
 mqttBridge.init();
+natsAuthService.init();
 
 // Middleware
 app.use(helmet());
