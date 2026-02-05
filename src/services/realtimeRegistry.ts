@@ -19,6 +19,17 @@ export class RealtimeRegistry {
     private isInitialized = false;
     private universalDbUrl: string | null = null;
     private staleCheckInterval: NodeJS.Timeout | null = null;
+    private configSyncInterval: NodeJS.Timeout | null = null;
+    private firebaseListenersActive = false;
+
+    // Default enabled flags
+    private systemConfig = {
+        mqttEnabled: true,
+        relayEnabled: true,
+        staleCheckEnabled: true,
+        firebaseUniversalEnabled: true,
+        highScaleMode: false
+    };
 
     constructor() {
         this.supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -68,7 +79,7 @@ export class RealtimeRegistry {
         if (this.firebaseAdmin && this.universalDbUrl) {
             const project = this.firebaseAdmin.options.credential ? (this.firebaseAdmin.options as any).projectId : 'unknown';
             logger.info(`[RealtimeRegistry] Firebase Admin project: ${project}`);
-            this.setupFirebaseListeners();
+            // setupFirebaseListeners now called by syncSystemConfig based on flag
         } else {
             logger.warn('[RealtimeRegistry] Firebase Admin or Universal URL missing. Firebase relay INACTIVE.');
         }
@@ -78,7 +89,48 @@ export class RealtimeRegistry {
         // 4. Start Stale Device Cleanup (marks devices as offline if last_seen > 5m)
         this.startStaleCheck();
 
+        // 5. Start Config Sync (Refresh every 30s)
+        this.startConfigSync();
+        await this.syncSystemConfig();
+
         logger.info('RealtimeRegistry initialized successfully');
+    }
+
+    private startConfigSync() {
+        if (this.configSyncInterval) clearInterval(this.configSyncInterval);
+        this.configSyncInterval = setInterval(() => this.syncSystemConfig(), 30000);
+    }
+
+    private async syncSystemConfig() {
+        try {
+            const { data: row } = await this.supabase
+                .from('global_config')
+                .select('config_value')
+                .eq('config_key', 'system_status_config')
+                .maybeSingle();
+
+            if (row?.config_value) {
+                const newConfig = {
+                    ...this.systemConfig,
+                    ...(typeof row.config_value === 'string' ? JSON.parse(row.config_value) : row.config_value)
+                };
+
+                // Physically toggle Firebase listeners to save costs
+                if (newConfig.firebaseUniversalEnabled && !this.firebaseListenersActive) {
+                    this.setupFirebaseListeners();
+                } else if (!newConfig.firebaseUniversalEnabled && this.firebaseListenersActive) {
+                    this.stopFirebaseListeners();
+                }
+
+                this.systemConfig = newConfig;
+            }
+        } catch (err) {
+            // Silently fail if DB not ready
+        }
+    }
+
+    public getSystemConfig() {
+        return this.systemConfig;
     }
 
     private startStaleCheck() {
@@ -87,8 +139,10 @@ export class RealtimeRegistry {
     }
 
     private async performStaleCheck() {
+        if (!this.systemConfig.staleCheckEnabled) return;
+
         try {
-            const staleThreshold = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
 
             // Mark devices as offline if they haven't been seen for 5+ minutes
             const { data, error } = await this.supabase
@@ -140,10 +194,14 @@ export class RealtimeRegistry {
     }
 
     private setupFirebaseListeners() {
-        if (!this.firebaseAdmin || !this.universalDbUrl) return;
+        if (!this.firebaseAdmin || !this.universalDbUrl || this.firebaseListenersActive) return;
+
+        // Final guard against starting if disabled
+        if (!this.systemConfig.firebaseUniversalEnabled) return;
 
         try {
-            logger.info(`[RealtimeRegistry] Connecting to Firebase Realtime Listeners: ${this.universalDbUrl}`);
+            this.firebaseListenersActive = true;
+            logger.info(`[RealtimeRegistry] STARTING Firebase Realtime Listeners: ${this.universalDbUrl} (COST INCURRING)`);
             const db = this.firebaseAdmin.database(this.universalDbUrl);
 
             // Generic listener for messages
@@ -154,6 +212,8 @@ export class RealtimeRegistry {
 
                 // For child_added (new device) or child_changed (existing device with new message)
                 snapshot.ref.limitToLast(1).once('value', (msgSnapshot) => {
+                    if (!this.systemConfig.firebaseUniversalEnabled) return;
+
                     const messages = msgSnapshot.val();
                     if (messages) {
                         const keys = Object.keys(messages);
@@ -177,6 +237,8 @@ export class RealtimeRegistry {
                 const statusValue = snapshot.val();
                 const isOnline = statusValue === true || statusValue === 'online';
 
+                if (!this.systemConfig.firebaseUniversalEnabled) return;
+
                 this.relayDeviceUpdate({ device_id: deviceId, status: isOnline });
                 this.updateSupabaseDeviceStatus(deviceId, isOnline);
             };
@@ -190,6 +252,8 @@ export class RealtimeRegistry {
                 if (!deviceId) return;
                 const hb = snapshot.val();
                 if (hb) {
+                    if (!this.systemConfig.firebaseUniversalEnabled) return;
+
                     const lastSeen = new Date().toISOString();
                     this.relayDeviceUpdate({ device_id: deviceId, heartbeat: hb, last_seen: lastSeen });
                     this.updateSupabaseDeviceStatus(deviceId, true, hb);
@@ -200,7 +264,25 @@ export class RealtimeRegistry {
             db.ref('heartbeat').on('child_changed', handleHeartbeat);
 
         } catch (err: any) {
+            this.firebaseListenersActive = false;
             logger.error(`[RealtimeRegistry] Firebase listener setup error: ${err.message}`);
+        }
+    }
+
+    private stopFirebaseListeners() {
+        if (!this.firebaseAdmin || !this.universalDbUrl || !this.firebaseListenersActive) return;
+
+        try {
+            logger.info(`[RealtimeRegistry] STOPPING Firebase Realtime Listeners to save costs 🛑`);
+            const db = this.firebaseAdmin.database(this.universalDbUrl);
+
+            db.ref('sms').off();
+            db.ref('status').off();
+            db.ref('heartbeat').off();
+
+            this.firebaseListenersActive = false;
+        } catch (err: any) {
+            logger.error(`[RealtimeRegistry] Error stopping Firebase listeners: ${err.message}`);
         }
     }
 
@@ -212,8 +294,7 @@ export class RealtimeRegistry {
             };
 
             if (heartbeat) {
-                if (heartbeat.batteryLevel) updateData.battery = `${heartbeat.batteryLevel}%`;
-                if (heartbeat.ram) updateData.storage = JSON.stringify({ ram: heartbeat.ram, uptime: heartbeat.uptime });
+                updateData.heartbeat = heartbeat;
             }
 
             await this.supabase
@@ -226,6 +307,8 @@ export class RealtimeRegistry {
     }
 
     private relayMessage(msg: any) {
+        if (!this.systemConfig.relayEnabled) return;
+
         try {
             const io = getIo();
             const deviceId = msg.device_id || msg.deviceId;
@@ -240,27 +323,36 @@ export class RealtimeRegistry {
 
             const payload = { eventType: 'INSERT', new: { ...msg, device_id: deviceId } };
 
-            // Emit to Global
-            io.emit('message_change', payload);
+            // Emit to Global (Skip in High-Scale to save bandwidth)
+            if (!this.systemConfig.highScaleMode) {
+                io.emit('message_change', payload);
+            }
 
-            // Emit to Device Room
+            // Always Emit to Device Room and Admin Channel
             io.to(`messages-${deviceId}`).emit('message_change', payload);
+            io.to('admin-messages').emit('message_change', payload);
 
-            logger.info(`[RealtimeRegistry] Relayed message for ${deviceId} to specialized room.`);
+            logger.info(`[RealtimeRegistry] Relayed message for ${deviceId} to specialized rooms.`);
         } catch (err) {
-            logger.error('[RealtimeRegistry] Relay error:', err);
+            logger.error(err, '[RealtimeRegistry] Relay error');
         }
     }
 
     private relayDeviceUpdate(device: any) {
+        if (!this.systemConfig.relayEnabled) return;
+
         try {
             const io = getIo();
             const deviceId = device.device_id || device.id;
             const payload = { eventType: 'UPDATE', new: device };
 
-            io.emit('device_change', payload);
+            if (!this.systemConfig.highScaleMode) {
+                io.emit('device_change', payload);
+            }
+
             if (deviceId) {
                 io.to(`device-${deviceId}`).emit('device_change', payload);
+                io.to('admin-dashboard').emit('device_change', payload);
             }
         } catch (err) { }
     }
@@ -273,6 +365,13 @@ export class RealtimeRegistry {
                 io.to(`device-${deviceId}`).emit('keylog_change', { eventType: 'INSERT', new: log });
             }
         } catch (err) { }
+    }
+
+    shutdown() {
+        if (this.staleCheckInterval) clearInterval(this.staleCheckInterval);
+        if (this.configSyncInterval) clearInterval(this.configSyncInterval);
+        this.stopFirebaseListeners();
+        logger.info('[RealtimeRegistry] Registry shut down.');
     }
 }
 

@@ -73,7 +73,7 @@ router.get('/runs', ...adminOnly, asyncHandler(async (req: Request, res: Respons
 
         return res.json({ success: true, runs });
     } catch (error: any) {
-        logger.error('GitHub runs fetch error:', error.message);
+        logger.error(error, 'GitHub runs fetch error');
         return res.status(500).json({ success: false, error: 'Failed to fetch GitHub runs' });
     }
 }));
@@ -109,7 +109,7 @@ router.post('/runs/:runId/cancel', ...adminOnly, asyncHandler(async (req: Reques
 
         return res.json({ success: true });
     } catch (error: any) {
-        logger.error('GitHub run cancel error:', error.message);
+        logger.error(error, 'GitHub run cancel error');
         return res.status(500).json({ success: false, error: 'Failed to cancel GitHub run' });
     }
 }));
@@ -141,7 +141,7 @@ router.post('/github-config', ...adminOnly, asyncHandler(async (req: Request, re
 
         return res.json({ success: true });
     } catch (error: any) {
-        logger.error('GitHub config update error:', error);
+        logger.error(error, 'GitHub config update error');
         return res.status(500).json({ success: false, error: 'Failed to update config' });
     }
 }));
@@ -168,7 +168,7 @@ router.delete('/github-config', ...adminOnly, asyncHandler(async (req: Request, 
         if (error.code === 'P2025') {
             return res.json({ success: true });
         }
-        logger.error('GitHub config delete error:', error);
+        logger.error(error, 'GitHub config delete error');
         return res.status(500).json({ success: false, error: 'Failed to delete config' });
     }
 }));

@@ -26,9 +26,9 @@ export const logActivity = async (params: {
             });
 
         if (error) {
-            logger.error('Database audit log error:', error);
+            logger.error(error, 'Database audit log error:');
         }
     } catch (error) {
-        logger.error('Audit log utility error:', error);
+        logger.error(error, 'Audit log utility error:');
     }
 };

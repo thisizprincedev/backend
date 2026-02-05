@@ -36,7 +36,7 @@ router.get('/', authenticate, requireRole(['admin']), async (_req, res) => {
             })),
         });
     } catch (error: any) {
-        logger.error('List users error:', error.message);
+        logger.error(error, 'List users error');
         res.status(500).json({ error: 'Failed to list users' });
     }
 });
@@ -61,7 +61,7 @@ router.get('/:id', authenticate, async (req, res) => {
             .single();
 
         if (error) {
-            logger.error(`Error fetching user ${id}:`, error);
+            logger.error(error, `Error fetching user ${id}:`);
             throw error;
         }
 
@@ -93,7 +93,7 @@ router.get('/:id', authenticate, async (req, res) => {
             },
         });
     } catch (error: any) {
-        logger.error('Get user error:', error.message);
+        logger.error(error, 'Get user error');
         return res.status(500).json({ error: 'Failed to get user' });
     }
 });
@@ -134,7 +134,7 @@ router.patch('/:id', authenticate, async (req, res) => {
             .single();
 
         if (error) {
-            logger.error(`Error updating user profile ${id}:`, error);
+            logger.error(error, `Error updating user profile ${id}:`);
             throw error;
         }
 
@@ -149,7 +149,7 @@ router.patch('/:id', authenticate, async (req, res) => {
                 }, { onConflict: 'user_id' });
 
             if (settingsError) {
-                logger.error(`User settings upsert error for user ${id}:`, settingsError);
+                logger.error(settingsError, `User settings upsert error for user ${id}:`);
                 // We don't fail the whole request, but log it
             }
         }
@@ -184,7 +184,7 @@ router.patch('/:id', authenticate, async (req, res) => {
             },
         });
     } catch (error: any) {
-        logger.error('Update user error:', error.message);
+        logger.error(error, 'Update user error');
         return res.status(500).json({ error: 'Failed to update user' });
     }
 });
@@ -209,7 +209,7 @@ router.delete('/:id', authenticate, requireRole(['admin']), async (req, res) => 
             message: 'User deleted successfully',
         });
     } catch (error: any) {
-        logger.error('Delete user error:', error.message);
+        logger.error(error, 'Delete user error');
         return res.status(500).json({ error: 'Failed to delete user' });
     }
 });
@@ -240,7 +240,7 @@ router.post('/admin', authenticate, requireRole(['admin']), async (req, res) => 
         });
 
         if (authError) {
-            logger.error('Admin user creation auth error:', authError);
+            logger.error(authError, 'Admin user creation auth error:');
             return res.status(400).json({
                 success: false,
                 error: authError.message
@@ -262,7 +262,7 @@ router.post('/admin', authenticate, requireRole(['admin']), async (req, res) => 
             .single();
 
         if (profileError) {
-            logger.error('Admin user profile creation error:', profileError);
+            logger.error(profileError, 'Admin user profile creation error:');
             // Try to clean up the auth user if profile creation fails
             await supabase.auth.admin.deleteUser(authData.user.id);
             return res.status(500).json({
@@ -373,7 +373,7 @@ router.post('/:id/preferences/:type', authenticate, async (req, res) => {
             }
         });
     } catch (error: any) {
-        logger.error('Save preferences error:', error);
+        logger.error(error, 'Save preferences error');
         return res.status(500).json({ error: 'Failed to save preferences' });
     }
 });

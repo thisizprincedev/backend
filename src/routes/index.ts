@@ -15,7 +15,12 @@ import proxyRoutes from './proxy';
 import mobileRoutes from './mobile';
 import deviceRoutes from './devices';
 
+import { apiLimiter } from '../middleware/rateLimiter';
+
 const router = Router();
+
+// Global API Limiter
+router.use(apiLimiter);
 
 // Mount routes
 router.use('/cloud-phones', cloudPhoneRoutes);

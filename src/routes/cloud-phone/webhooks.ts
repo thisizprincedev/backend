@@ -25,7 +25,7 @@ interface GeeLarkSMSWebhook {
  */
 router.post('/geelark', asyncHandler(async (req: Request, res: Response) => {
     const payload: GeeLarkSMSWebhook = req.body;
-    logger.info("Received GeeLark webhook:", JSON.stringify(payload));
+    logger.info({ payload }, "Received GeeLark webhook");
 
     if (!payload.sms) {
         return res.status(400).json({ error: "Invalid webhook payload - missing SMS data" });
@@ -48,7 +48,7 @@ router.post('/geelark', asyncHandler(async (req: Request, res: Response) => {
         .single();
 
     if (insertError) {
-        logger.error("Failed to insert GeeLark SMS:", insertError);
+        logger.error(insertError, 'Failed to insert GeeLark SMS:');
     } else if (newMsg) {
         // Emit Socket.IO event for real-time update
         io.to('cloud-phone-messages').emit('message_change', { eventType: 'INSERT', new: newMsg });
@@ -114,7 +114,7 @@ ${sms.content}
             }
         }
     } catch (err: any) {
-        logger.error("Auto-forward processing error:", err.message);
+        logger.error(err, "Auto-forward processing error");
     }
 
     return res.json({ success: true, message: "Webhook processed" });

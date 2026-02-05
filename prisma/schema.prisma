@@ -56,10 +56,8 @@ model devices {
 model heartbeat {
   id          BigInt    @id(map: "heartbeat_data_pkey") @default(autoincrement())
   device_id   String
-  status      Boolean?  @default(false)
   last_update DateTime  @default(now()) @db.Timestamptz(6)
-  uptime      BigInt    @default(0)
-  ram         BigInt    @default(0)
+  type        String?   @default("ping")
   created_at  DateTime? @default(now()) @db.Timestamptz(6)
   updated_at  DateTime? @default(now()) @db.Timestamptz(6)
 

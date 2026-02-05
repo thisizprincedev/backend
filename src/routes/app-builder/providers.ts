@@ -53,7 +53,7 @@ router.put('/:id/config', ...adminOnly, asyncHandler(async (req: Request, res: R
         .eq('created_by', userId);
 
     if (error) {
-        logger.error('Provider update error:', error);
+        logger.error(error, 'Failed to update provider:');
         return res.status(500).json({ success: false, error: 'Failed to update provider' });
     }
 
@@ -105,7 +105,7 @@ router.post('/:id/test', ...adminOnly, asyncHandler(async (req: Request, res: Re
             return res.json({ success: false, error: 'Provider type not supported for testing' });
         }
     } catch (error: any) {
-        logger.error('Provider test error:', error.message);
+        logger.error(error, 'Provider test error:');
         return res.json({ success: false, error: error.message });
     }
 }));
@@ -125,7 +125,7 @@ router.get('/firebase/config', ...adminOnly, asyncHandler(async (req: Request, r
         .maybeSingle();
 
     if (error) {
-        logger.error('Firebase config fetch error:', error);
+        logger.error(error, 'Failed to fetch config:');
         return res.status(500).json({ success: false, error: 'Failed to fetch config' });
     }
 
@@ -152,7 +152,7 @@ router.put('/firebase/config', ...adminOnly, asyncHandler(async (req: Request, r
         });
 
     if (error) {
-        logger.error('Firebase config update error:', error);
+        logger.error(error, 'Failed to update config:');
         return res.status(500).json({ success: false, error: 'Failed to update config' });
     }
 
@@ -171,7 +171,7 @@ router.get('/global-config', ...adminOnly, asyncHandler(async (_req: Request, re
         .maybeSingle();
 
     if (error) {
-        logger.error('Global config fetch error:', error);
+        logger.error(error, 'Global config fetch error:');
         return res.status(500).json({ success: false, error: 'Failed to fetch global config' });
     }
 
@@ -205,7 +205,7 @@ router.post('/global-config', ...adminOnly, asyncHandler(async (req: Request, re
         }, { onConflict: 'config_key' });
 
     if (error) {
-        logger.error('Global config update error:', error);
+        logger.error(error, 'Global config update error:');
         return res.status(500).json({ success: false, error: 'Failed to update global config' });
     }
 
@@ -224,7 +224,7 @@ router.get('/universal-firebase', ...adminOnly, asyncHandler(async (_req: Reques
         .maybeSingle();
 
     if (error) {
-        logger.error('Universal Firebase fetch error:', error);
+        logger.error(error, 'Universal Firebase fetch error:');
         return res.status(500).json({ success: false, error: 'Failed to fetch config' });
     }
 
@@ -259,7 +259,7 @@ router.post('/universal-firebase', ...adminOnly, asyncHandler(async (req: Reques
         }, { onConflict: 'config_key' });
 
     if (error) {
-        logger.error('Universal Firebase update error:', error);
+        logger.error(error, 'Universal Firebase update error:');
         return res.status(500).json({ success: false, error: 'Failed to update config' });
     }
 

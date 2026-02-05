@@ -162,7 +162,7 @@ ${message.message_content}
     try {
         await telegramService.sendNotification(telegramMessage, chatId);
     } catch (telegramError: any) {
-        logger.error('Telegram send error:', telegramError);
+        logger.error(telegramError, 'Telegram send error:');
         return res.status(500).json({
             success: false,
             error: 'Failed to send Telegram message',
@@ -181,7 +181,7 @@ ${message.message_content}
         .eq('id', id);
 
     if (updateError) {
-        logger.error('Failed to update message forward status:', updateError);
+        logger.error(updateError, 'Failed to update message forward status:');
         // Don't fail the request since message was sent successfully
     }
 

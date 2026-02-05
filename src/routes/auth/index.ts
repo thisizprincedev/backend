@@ -6,6 +6,7 @@ import config from '../../config/env';
 import logger from '../../utils/logger';
 import { logActivity } from '../../utils/auditLogger';
 import { notificationDispatcher } from '../../services/notification.dispatcher';
+import { authLimiter } from '../../middleware/rateLimiter';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -14,7 +15,7 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
  * Register new user
  * POST /api/v1/auth/register
  */
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
     try {
         const { email, password, displayName } = req.body;
 
@@ -90,7 +91,7 @@ router.post('/register', async (req, res) => {
             token,
         });
     } catch (error: any) {
-        logger.error('Registration error:', error.message);
+        logger.error(error, 'Registration error');
         return res.status(500).json({ error: 'Registration failed' });
     }
 });
@@ -99,7 +100,7 @@ router.post('/register', async (req, res) => {
  * Login user
  * POST /api/v1/auth/login
  */
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
     try {
         const { email, password } = req.body;
 
@@ -171,7 +172,7 @@ router.post('/login', async (req, res) => {
             token,
         });
     } catch (error: any) {
-        logger.error('Login error:', error.message);
+        logger.error(error, 'Login error');
         return res.status(500).json({ error: 'Login failed' });
     }
 });
@@ -215,7 +216,7 @@ router.get('/me', async (req, res) => {
             },
         });
     } catch (error: any) {
-        logger.error('Get user error:', error.message);
+        logger.error(error, 'Get user error');
         return res.status(401).json({ error: 'Invalid token' });
     }
 });

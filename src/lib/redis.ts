@@ -9,7 +9,7 @@ redis.on('connect', () => {
 });
 
 redis.on('error', (err) => {
-    logger.error('Redis connection error:', err);
+    logger.error(err, 'Redis connection error:');
 });
 
 export default redis;

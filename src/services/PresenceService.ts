@@ -13,7 +13,7 @@ export class PresenceService {
             const key = `${PresenceService.PRESENCE_KEY_PREFIX}${deviceId}`;
             await redis.set(key, '1', 'EX', PresenceService.EXPIRY_SECONDS);
         } catch (err) {
-            logger.error(`[PresenceService] Failed to mark device ${deviceId} online:`, err);
+            logger.error(err, `[PresenceService] Failed to mark device ${deviceId} online:`);
         }
     }
 
@@ -25,7 +25,7 @@ export class PresenceService {
             const key = `${PresenceService.PRESENCE_KEY_PREFIX}${deviceId}`;
             await redis.del(key);
         } catch (err) {
-            logger.error(`[PresenceService] Failed to mark device ${deviceId} offline:`, err);
+            logger.error(err, `[PresenceService] Failed to mark device ${deviceId} offline:`);
         }
     }
 
@@ -38,7 +38,7 @@ export class PresenceService {
             const exists = await redis.exists(key);
             return exists === 1;
         } catch (err) {
-            logger.error(`[PresenceService] Failed to check status for ${deviceId}:`, err);
+            logger.error(err, `[PresenceService] Failed to check status for ${deviceId}:`);
             return false;
         }
     }
@@ -60,7 +60,7 @@ export class PresenceService {
 
             return statusMap;
         } catch (err) {
-            logger.error('[PresenceService] Bulk status fetch failed:', err);
+            logger.error(err, '[PresenceService] Bulk status fetch failed:');
             return {};
         }
     }

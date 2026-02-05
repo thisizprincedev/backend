@@ -14,6 +14,22 @@ export class FirebaseService {
     constructor() {
         this.serviceAccount = config.firebase.serviceAccount;
 
+        if (this.serviceAccount && this.serviceAccount.private_key) {
+            // Fix OpenSSL 3.0 issue: ensure literal \n are true newlines
+            // Also strip any accidental wrapping quotes that might have survived parsing
+            let key = this.serviceAccount.private_key.trim();
+
+            if (key.startsWith("'") && key.endsWith("'")) key = key.substring(1, key.length - 1);
+            if (key.startsWith('"') && key.endsWith('"')) key = key.substring(1, key.length - 1);
+
+            this.serviceAccount.private_key = key.replace(/\\n/g, '\n');
+
+            logger.debug({
+                keyStart: this.serviceAccount.private_key.substring(0, 30),
+                keyEnd: this.serviceAccount.private_key.substring(this.serviceAccount.private_key.length - 30)
+            }, 'Firebase private key sanitized');
+        }
+
         if (!this.serviceAccount) {
             logger.warn('Firebase service account not configured');
         }

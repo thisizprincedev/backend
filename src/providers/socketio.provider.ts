@@ -13,7 +13,9 @@ export class SocketIOProvider implements IDeviceProvider {
 
     private async request(path: string) {
         try {
-            const response = await axios.get(`${this.baseUrl}${path}`);
+            const separator = path.includes('?') ? '&' : '?';
+            const appIdParam = this.appId ? `${separator}appId=${this.appId}` : '';
+            const response = await axios.get(`${this.baseUrl}${path}${appIdParam}`);
             return response.data;
         } catch (error: any) {
             console.error(`SocketIOProvider error (${path}):`, error.message);
@@ -95,9 +97,10 @@ export class SocketIOProvider implements IDeviceProvider {
     }
 
     async sendCommand(deviceId: string, command: string, payload: any): Promise<any> {
-        const response = await axios.post(`${this.baseUrl}/api/devices/${deviceId}/commands`, {
+        const appIdParam = this.appId ? `?appId=${this.appId}` : '';
+        const response = await axios.post(`${this.baseUrl}/api/devices/${deviceId}/commands${appIdParam}`, {
             command,
-            payload,
+            payload: payload || {},
             status: 'pending'
         });
 

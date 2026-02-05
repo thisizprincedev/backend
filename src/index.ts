@@ -1,3 +1,4 @@
+import './utils/tracer'; // Must be first
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -6,32 +7,33 @@ import morgan from 'morgan';
 import { createServer } from 'http';
 
 import config from './config/env';
-import logger from './utils/logger';
+import logger, { httpLogger } from './utils/logger';
 import apiRoutes from './routes';
 import { errorHandler } from './middleware/errorHandler';
+import { initSocket } from './socket';
+
+// Initialize Backend Realtime Registry
+import { realtimeRegistry } from './services/realtimeRegistry';
+import { mqttBridge } from './services/MqttBridge';
+import { natsService } from './services/NatsService';
 
 const app: Application = express();
 const httpServer = createServer(app);
 
-// Socket.IO setup
-// Socket.IO setup
-import { initSocket } from './socket';
-
+// Initialize Socket.IO
 const io = initSocket(httpServer);
 
-// Initialize Backend Realtime Registry (Scaling for 100k+ devices)
-import { realtimeRegistry } from './services/realtimeRegistry';
-import { mqttBridge } from './services/MqttBridge';
-import { natsAuthService } from './services/NatsAuthService';
+// Trust proxy for rate limiting behind load balancers
+app.set('trust proxy', true);
 
 // 🛡️ Guard first, then Bridge
 (async () => {
     try {
-        await natsAuthService.init();
+        await natsService.init();
         await realtimeRegistry.init();
         mqttBridge.init();
     } catch (err) {
-        logger.error('Service initialization failed:', err);
+        logger.error(err, 'Service initialization failed');
     }
 })();
 
@@ -48,7 +50,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Logging
 app.use(morgan('combined', {
     stream: {
-        write: (message: string) => logger.http(message.trim()),
+        write: (message: string) => httpLogger(message.trim()),
     },
 }));
 
@@ -76,26 +78,56 @@ app.use((req: Request, res: Response) => {
 // Error handler
 app.use(errorHandler);
 
-// Socket.IO connection handling
-// Socket.IO connection handling moved to socket.ts
-
 // Start server
 const PORT = config.port;
 
-httpServer.listen(PORT, () => {
-    logger.info(`🚀 Server running on port ${PORT}`);
-    logger.info(`📡 Environment: ${config.env}`);
-    logger.info(`🔗 API: http://localhost:${PORT}/api/${config.apiVersion}`);
-    logger.info(`💚 Health: http://localhost:${PORT}/health`);
-});
+const startServer = async () => {
+    try {
+        // Initialize Monitoring Service (loads settings from DB)
+        const { monitoringService } = await import('./services/monitoring.service');
+        await monitoringService.init();
+
+        httpServer.listen(PORT, () => {
+            logger.info(`🚀 Server running on port ${PORT}`);
+            logger.info(`📡 Environment: ${config.env}`);
+            logger.info(`🔗 API: http://localhost:${PORT}/api/${config.apiVersion}`);
+            logger.info(`💚 Health: http://localhost:${PORT}/health`);
+        });
+    } catch (err) {
+        logger.error(err, 'Failed to start server');
+        process.exit(1);
+    }
+};
+
+startServer();
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-    logger.info('SIGTERM signal received: closing HTTP server');
-    httpServer.close(() => {
+const shutdown = async (signal: string) => {
+    logger.info(`${signal} signal received: closing server`);
+
+    httpServer.close(async () => {
         logger.info('HTTP server closed');
-        process.exit(0);
+
+        try {
+            mqttBridge.shutdown();
+            realtimeRegistry.shutdown();
+            await natsService.close();
+
+            logger.info('All services shut down. Exiting.');
+            process.exit(0);
+        } catch (err) {
+            logger.error(err, 'Error during shutdown');
+            process.exit(1);
+        }
     });
-});
+
+    setTimeout(() => {
+        logger.error('Could not close connections in time, forcefully shutting down');
+        process.exit(1);
+    }, 10000);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 export { app, io };

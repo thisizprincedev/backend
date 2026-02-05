@@ -46,6 +46,9 @@ interface Config {
     nats: {
         user: string;
         pass: string;
+        issuerPublicKey: string;
+        issuerSeed: string;
+        accountPublicKey: string;
     };
     logging: {
         level: string;
@@ -80,14 +83,19 @@ const config: Config = {
         serviceAccount: process.env.FIREBASE_SERVICE_ACCOUNT
             ? (() => {
                 try {
-                    let jsonString = process.env.FIREBASE_SERVICE_ACCOUNT!;
-                    // Handle double-escaped JSON from deployment platforms
-                    // Remove leading/trailing spaces and handle escaped quotes
-                    jsonString = jsonString.trim();
-                    // If the string starts with escaped quotes, unescape them
+                    let jsonString = process.env.FIREBASE_SERVICE_ACCOUNT!.trim();
+
+                    // Robust unquoting: Handle cases where the string is wrapped in ' or "
+                    if ((jsonString.startsWith("'") && jsonString.endsWith("'")) ||
+                        (jsonString.startsWith('"') && jsonString.endsWith('"'))) {
+                        jsonString = jsonString.substring(1, jsonString.length - 1);
+                    }
+
+                    // Handle escaped quotes if they still exist
                     if (jsonString.includes('\\"')) {
                         jsonString = jsonString.replace(/\\"/g, '"');
                     }
+
                     return JSON.parse(jsonString);
                 } catch (error) {
                     console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT:', error);
@@ -121,8 +129,11 @@ const config: Config = {
         password: process.env.MQTT_PASSWORD,
     },
     nats: {
-        user: process.env.NATS_USER || 'srm_admin',
+        user: process.env.NATS_USER || 'srm_backend',
         pass: process.env.NATS_PASSWORD || 'strong_password_123',
+        issuerPublicKey: process.env.NATS_ISSUER_PUBLIC_KEY || '',
+        issuerSeed: process.env.NATS_ISSUER_SEED || '',
+        accountPublicKey: process.env.NATS_ACCOUNT_PUBLIC_KEY || 'AADCTUHEPBJKE5L74CWHSV2T3NMXGKRZMSTST3IFLKVA2MUW33CRRLWQ',
     },
     logging: {
         level: process.env.LOG_LEVEL || 'info',

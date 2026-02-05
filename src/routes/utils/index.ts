@@ -24,7 +24,7 @@ router.post('/telegram', authenticate, asyncHandler(async (req: Request, res: Re
         await telegramService.sendNotification(message, chatId);
         return res.json({ success: true });
     } catch (error: any) {
-        logger.error('Telegram send error:', error.message);
+        logger.error(error, 'Telegram send error');
         return res.status(500).json({ success: false, error: error.message });
     }
 }));
@@ -49,7 +49,7 @@ router.post('/sync', authenticate, asyncHandler(async (req: Request, res: Respon
         });
 
     if (error) {
-        logger.error('Profile sync error:', error);
+        logger.error(error, 'Profile sync error');
         return res.status(500).json({ success: false, error: 'Failed to sync profile' });
     }
 
@@ -80,13 +80,13 @@ router.post('/log', authenticate, asyncHandler(async (req: Request, res: Respons
             });
 
         if (error) {
-            logger.error('Audit log error:', error);
+            logger.error(error, 'Audit log error');
             return res.status(500).json({ success: false, error: 'Failed to log action' });
         }
 
         return res.json({ success: true });
     } catch (error: any) {
-        logger.error('Audit log error:', error);
+        logger.error(error, 'Audit log error');
         return res.status(500).json({ success: false, error: 'Failed to log action' });
     }
 }));
@@ -131,7 +131,7 @@ router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Respons
     const { data: logs, count, error } = await query;
 
     if (error) {
-        logger.error('Fetch logs error:', error);
+        logger.error(error, 'Fetch logs error');
         return res.status(500).json({ success: false, error: 'Failed to fetch logs: ' + error.message });
     }
 
@@ -148,7 +148,7 @@ router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Respons
                 .in('id', userIds);
 
             if (profileError) {
-                logger.warn('Failed to fetch user profiles for logs:', profileError);
+                logger.warn(profileError, 'Failed to fetch user profiles for logs:');
                 enrichedLogs = logs;
             } else {
                 // Map profiles for O(1) lookup

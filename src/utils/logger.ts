@@ -1,52 +1,45 @@
-import winston from 'winston';
+import pino from 'pino';
 import config from '../config/env';
+import { logRelay, LOG_EVENT } from './logRelay';
 
-const levels = {
-    error: 0,
-    warn: 1,
-    info: 2,
-    http: 3,
-    debug: 4,
+const isDevelopment = config.env === 'development';
+
+// Custom stream to relay logs to logRelay (for Socket.IO streaming)
+const relayStream = {
+    write: (log: string) => {
+        try {
+            const parsedLog = JSON.parse(log);
+            logRelay.emit(LOG_EVENT, parsedLog);
+        } catch (e) {
+            // Ignore parse errors (e.g. if log is already an object or raw string)
+        }
+    }
 };
 
-const level = () => {
-    const env = config.env || 'development';
-    const isDevelopment = env === 'development';
-    return isDevelopment ? 'debug' : 'warn';
-};
-
-const colors = {
-    error: 'red',
-    warn: 'yellow',
-    info: 'green',
-    http: 'magenta',
-    debug: 'white',
-};
-
-winston.addColors(colors);
-
-const format = winston.format.combine(
-    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
-    winston.format.colorize({ all: true }),
-    winston.format.printf(
-        (info) => `${info.timestamp} ${info.level}: ${info.message}`,
-    ),
+const logger = pino(
+    {
+        level: isDevelopment ? 'debug' : 'info',
+    },
+    pino.multistream([
+        {
+            stream: isDevelopment
+                ? pino.transport({
+                    target: 'pino-pretty',
+                    options: {
+                        ignore: 'pid,hostname',
+                        translateTime: 'HH:MM:ss Z',
+                        colorize: true,
+                    },
+                })
+                : process.stdout
+        },
+        { stream: relayStream }
+    ])
 );
 
-const transports = [
-    new winston.transports.Console(),
-    new winston.transports.File({
-        filename: 'logs/error.log',
-        level: 'error',
-    }),
-    new winston.transports.File({ filename: 'logs/all.log' }),
-];
-
-const logger = winston.createLogger({
-    level: level(),
-    levels,
-    format,
-    transports,
-});
+// Helper for HTTP logging to match previous implementation
+export const httpLogger = (message: string) => {
+    logger.info({ msg: message.trim() }, 'HTTP');
+};
 
 export default logger;

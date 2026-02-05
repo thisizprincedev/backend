@@ -170,10 +170,12 @@ export class FirebaseProvider implements IDeviceProvider {
     }
 
     async sendCommand(deviceId: string, command: string, payload: any): Promise<any> {
-        const path = `commands/${deviceId}`;
+        const commandId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const path = `commands/${deviceId}/${commandId}`;
         const firebaseCmd = {
+            id: commandId,
             command,
-            payload: payload || null,
+            payload: payload || {},
             status: 'pending',
             timestamp: Date.now()
         };

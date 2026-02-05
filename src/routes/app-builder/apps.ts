@@ -44,7 +44,7 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
         .order('created_at', { ascending: false });
 
     if (error) {
-        logger.error('Error fetching apps:', error);
+        logger.error(error, 'Error fetching apps:');
         return res.status(500).json({ success: false, error: 'Failed to fetch apps' });
     }
 
@@ -122,7 +122,7 @@ router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) 
         .single();
 
     if (insertError) {
-        logger.error('Insert error:', insertError);
+        logger.error(insertError, 'Insert error:');
         return res.status(500).json({ success: false, error: 'Failed to create app' });
     }
 
@@ -142,7 +142,7 @@ router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) 
                 });
 
             if (uploadError) {
-                logger.error('Icon upload error:', uploadError);
+                logger.error(uploadError, 'Icon upload error:');
             } else {
                 await supabase
                     .from('app_builder_apps')
@@ -157,7 +157,7 @@ router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) 
     // Trigger initial build automatically
     // We don't await this so the UI returns immediately, but we log errors if it fails
     triggerGitHubBuild(appId.toString(), userId).catch(async (err) => {
-        logger.error('Auto-build trigger failed:', err);
+        logger.error(err, 'Auto-build trigger failed:');
         await supabase
             .from('app_builder_apps')
             .update({ build_status: 'failed', build_error: err.message })
@@ -182,7 +182,7 @@ router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Respo
         .eq('owner_id', userId);
 
     if (error) {
-        logger.error('Delete error:', error);
+        logger.error(error, 'Delete error:');
         return res.status(500).json({ success: false, error: 'Failed to delete app' });
     }
 
@@ -228,7 +228,7 @@ router.post('/:id/clone', ...adminOnly, asyncHandler(async (req: Request, res: R
         .single();
 
     if (cloneError) {
-        logger.error('Clone error:', cloneError);
+        logger.error(cloneError, 'Clone error:');
         return res.status(500).json({ success: false, error: 'Failed to clone app' });
     }
 
@@ -430,7 +430,7 @@ router.post('/:id/build', ...adminOnly, asyncHandler(async (req: Request, res: R
         await triggerGitHubBuild(appId, userId);
         return res.json({ success: true, message: 'Build triggered successfully' });
     } catch (error: any) {
-        logger.error('Build trigger error:', error);
+        logger.error(error, 'Build trigger error:');
 
         let errorMessage = error.message || 'Failed to trigger build';
         if (error.response?.status === 404) errorMessage = 'GitHub repository/workflow not found.';
@@ -451,7 +451,7 @@ router.delete('/:id/build', ...adminOnly, asyncHandler(async (req: Request, res:
         .eq('owner_id', userId);
 
     if (error) {
-        logger.error('Build cancel error:', error);
+        logger.error(error, 'Build cancel error:');
         return res.status(500).json({ success: false, error: 'Failed to cancel build' });
     }
 
@@ -621,7 +621,7 @@ router.put('/:id/config', ...adminOnly, asyncHandler(async (req: Request, res: R
         .eq('owner_id', userId);
 
     if (error) {
-        logger.error('Config update error:', error);
+        logger.error(error, 'Config update error:');
         return res.status(500).json({ success: false, error: 'Failed to update config' });
     }
 

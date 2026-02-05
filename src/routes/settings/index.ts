@@ -148,6 +148,15 @@ router.post('/global/:key', authenticate, asyncHandler(async (req: Request, res:
         userAgent: req.headers['user-agent']
     });
 
+    // Apply specific monitoring settings at runtime
+    if (key === 'system_log_level') {
+        const { monitoringService } = await import('../../services/monitoring.service');
+        monitoringService.setLogLevel(value as any);
+    } else if (key === 'system_trace_sample_rate') {
+        const { monitoringService } = await import('../../services/monitoring.service');
+        monitoringService.setTraceSampleRate(parseFloat(value as string));
+    }
+
     logger.info(`Global config ${existing ? 'updated' : 'created'}: ${key} by user ${userId}`);
 
     let resultValue = result.config_value;

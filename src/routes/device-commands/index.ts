@@ -5,6 +5,7 @@ import { authenticate } from '../../middleware/auth';
 import logger from '../../utils/logger';
 import { io } from '../../index';
 import { ProviderFactory } from '../../providers/factory';
+import { realtimeRegistry } from '../../services/realtimeRegistry';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -125,7 +126,9 @@ router.patch('/:id', authenticate, async (req, res) => {
 
         // Emit real-time update
         io.to(`commands-${command.device_id}`).emit('command_change', { eventType: 'UPDATE', new: command });
-        io.emit('command_change', { eventType: 'UPDATE', new: command });
+        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+            io.emit('command_change', { eventType: 'UPDATE', new: command });
+        }
 
         return res.json({
             success: true,
@@ -152,8 +155,10 @@ router.delete('/:id', authenticate, async (req, res) => {
 
         if (error) throw error;
 
-        // Emit real-time update
-        io.emit('command_change', { eventType: 'DELETE', old: { id } });
+        // Emit real-time
+        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+            io.emit('command_change', { eventType: 'DELETE', old: { id } });
+        }
 
         return res.json({
             success: true,

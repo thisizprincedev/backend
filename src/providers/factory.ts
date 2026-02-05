@@ -15,6 +15,7 @@ export class ProviderFactory {
         }
 
         // Fetch app details to identify provider
+        console.log(`[ProviderFactory] Fetching app details for appId: ${appId}`);
         const { data: app, error } = await supabase
             .from('app_builder_apps')
             .select('*')
@@ -22,10 +23,12 @@ export class ProviderFactory {
             .single();
 
         if (error || !app) {
+            console.error(`[ProviderFactory] App not found or error for ${appId}:`, error?.message);
             return new SupabaseProvider();
         }
 
         const providerType = (app.db_provider_type || '').toUpperCase();
+        console.log(`[ProviderFactory] Resolved providerType: ${providerType} for app: ${app.name || appId}`);
 
         if (providerType === 'FIREBASE') {
             try {
@@ -38,11 +41,17 @@ export class ProviderFactory {
             }
         }
 
-        if (providerType === 'SOCKETIO') {
+        if (providerType === 'SOCKETIO' || providerType === 'SOCKET_IO') {
             try {
                 const appConfig = encryptionService.decrypt(app.encrypted_config) as any;
-                if (appConfig?.socketio?.serverUrl || appConfig?.socketio?.url) {
-                    return new SocketIOProvider(appConfig.socketio.serverUrl || appConfig.socketio.url, appId);
+                const socketUrl = appConfig?.socketio?.serverUrl ||
+                    appConfig?.socketio?.url ||
+                    appConfig?.socketio_server_url;
+
+                console.log(`[ProviderFactory] Resolved SocketIO URL: ${socketUrl} for appId: ${appId}`);
+
+                if (socketUrl) {
+                    return new SocketIOProvider(socketUrl, appId);
                 }
             } catch (err) {
                 console.error('Decryption error for socketio provider:', err);

@@ -6,6 +6,7 @@ import { asyncHandler } from '../../middleware/errorHandler';
 import { io } from '../../index';
 import { ProviderFactory } from '../../providers/factory';
 import { presenceService } from '../../services/PresenceService';
+import { realtimeRegistry } from '../../services/realtimeRegistry';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -29,9 +30,11 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
 
     devices = devices.map(d => {
         const id = d.device_id || d.id;
+        // Merge status: Use 'true' if EITHER backend OR provider says online
+        const isOnline = (statuses[id] === true) || (d.status === true);
         return {
             ...d,
-            status: statuses[id] || false
+            status: isOnline
         };
     });
 
@@ -39,7 +42,13 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
         devices = devices.filter(d => d.status === (status === 'true'));
     }
 
-    return res.json({ success: true, devices });
+    const { data: app } = await supabase
+        .from('app_builder_apps')
+        .select('id, name:app_name, provider_type:db_provider_type')
+        .eq('id', appId)
+        .maybeSingle();
+
+    return res.json({ success: true, devices, app });
 }));
 
 /**
@@ -117,8 +126,11 @@ router.patch('/:deviceId', ...adminOnly, asyncHandler(async (req: Request, res: 
     }
 
     // Emit real-time update
-    io.emit('device_change', { eventType: 'UPDATE', new: data });
+    if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+        io.emit('device_change', { eventType: 'UPDATE', new: data });
+    }
     io.to(`device-${deviceId}`).emit('device_change', { eventType: 'UPDATE', new: data });
+    io.to('admin-dashboard').emit('device_change', { eventType: 'UPDATE', new: data });
 
     return res.json({ success: true, device: data });
 }));

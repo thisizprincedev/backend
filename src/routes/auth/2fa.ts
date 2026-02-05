@@ -51,7 +51,7 @@ router.post('/send', asyncHandler(async (req: Request, res: Response) => {
         });
 
     if (insertError) {
-        logger.error('Error storing 2FA code:', insertError);
+        logger.error(insertError, 'Error storing 2FA code:');
         return res.status(500).json({
             success: false,
             error: 'Failed to generate code'
@@ -128,7 +128,7 @@ router.post('/verify', asyncHandler(async (req: Request, res: Response) => {
         .single();
 
     if (profileError || !user) {
-        logger.error('Error fetching user for 2FA token:', profileError);
+        logger.error(profileError, 'Error fetching user for 2FA token:');
         return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 

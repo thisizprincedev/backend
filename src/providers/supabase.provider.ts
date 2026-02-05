@@ -175,7 +175,7 @@ export class SupabaseProvider implements IDeviceProvider {
             .insert([{
                 device_id: deviceId,
                 command,
-                payload: payload || null,
+                payload: payload || {},
                 status: 'pending',
             }])
             .select()

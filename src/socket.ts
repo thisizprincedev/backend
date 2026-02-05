@@ -4,8 +4,13 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import config from './config/env';
 import logger from './utils/logger';
 import redis from './lib/redis';
+import { logRelay, LOG_EVENT } from './utils/logRelay';
+import jwt from 'jsonwebtoken';
+import { createClient } from '@supabase/supabase-js';
 
 let io: SocketIOServer | null = null;
+
+const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
 export const initSocket = (httpServer: HttpServer): SocketIOServer => {
     if (io) {
@@ -16,7 +21,7 @@ export const initSocket = (httpServer: HttpServer): SocketIOServer => {
     const subClient = pubClient.duplicate();
 
     subClient.on('error', (err) => {
-        logger.error('Redis subClient error:', err);
+        logger.error(err, 'Redis subClient error:');
     });
 
     subClient.on('connect', () => {
@@ -32,19 +37,57 @@ export const initSocket = (httpServer: HttpServer): SocketIOServer => {
         adapter: createAdapter(pubClient, subClient)
     });
 
+    // Socket auth middleware
+    io.use(async (socket, next) => {
+        try {
+            const token = socket.handshake.auth.token || socket.handshake.headers['authorization']?.split(' ')[1];
+            if (!token) return next();
+
+            const decoded = jwt.verify(token, config.jwt.secret) as any;
+
+            // Fetch user role from profile
+            const { data: profile } = await supabase
+                .from('user_profiles')
+                .select('*')
+                .eq('id', decoded.id)
+                .single();
+
+            if (profile) {
+                (socket.request as any).user = profile;
+            }
+            next();
+        } catch (err) {
+            logger.warn({ err }, 'Socket auth error');
+            next();
+        }
+    });
+
+    // Listen to log relay and broadcast to admin_logs room
+    logRelay.on(LOG_EVENT, (log) => {
+        if (io) {
+            io.to('admin_logs').emit(LOG_EVENT, log);
+        }
+    });
+
     io.on('connection', (socket: Socket) => {
-        const token = socket.handshake.auth.token;
-        logger.info(`[Socket] Client connected: ${socket.id} (Token present: ${!!token})`);
+        const user = (socket.request as any).user;
+        logger.info(`[Socket] Client connected: ${socket.id} (User: ${user?.email || 'unknown'})`);
 
         // Join room for specific updates
         socket.on('join', (room: string) => {
             if (!room) return;
+
+            // Security: Only admins can join admin_logs
+            if (room === 'admin_logs') {
+                if (user?.role !== 'admin') {
+                    logger.warn({ socketId: socket.id, userId: user?.id }, 'Non-admin attempted to join admin_logs');
+                    socket.emit('error', { message: 'Unauthorized to join this room' });
+                    return;
+                }
+            }
+
             socket.join(room);
             logger.info(`[Socket] ${socket.id} joined room: "${room}"`);
-
-            // Debug: list all rooms this socket is in
-            const rooms = Array.from(socket.rooms);
-            logger.debug(`[Socket] ${socket.id} current rooms: ${JSON.stringify(rooms)}`);
         });
 
         // Leave room
