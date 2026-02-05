@@ -107,9 +107,20 @@ export class GeelarkService {
     }
 
     /**
+     * Send SMS from cloud phone
+     */
+    async sendSms(apiKey: string, phoneId: string, phoneNumber: string, text: string) {
+        return this.request('/phone/sendSms', apiKey, {
+            id: phoneId,
+            phoneNumber,
+            text
+        });
+    }
+
+    /**
      * Control cloud phone (restart, stop, etc.)
      */
-    async controlPhone(apiKey: string, phoneId: string, action: string) {
+    async controlPhone(apiKey: string, phoneId: string, action: string, extra: any = {}) {
         let endpoint = '/phone/stop';
         let payload: any = { ids: [phoneId] };
 
@@ -132,17 +143,14 @@ export class GeelarkService {
             case 'screenshot':
                 return this.screenshot(apiKey, phoneId, 'capture');
             case 'sendSms':
-                // Note: sendSms actually requires more params (phoneNumber, text)
-                // This is a partial implementation in line with the legacy geelark-phone-control
-                endpoint = '/phone/sendSms';
-                payload = { id: phoneId };
-                break;
+                return this.sendSms(apiKey, phoneId, extra.phoneNumber, extra.text);
             default:
                 throw new Error(`Unsupported control action: ${action}`);
         }
 
         return this.request(endpoint, apiKey, payload);
     }
+
 
     /**
      * Take screenshot

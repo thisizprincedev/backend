@@ -15,7 +15,7 @@ const adminOnly = [authenticate, requireRole(['admin'])];
  * List login records
  */
 router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
-    const { databaseId, userId, status, appName, limit = 100, offset = 0 } = req.query;
+    const { databaseId, userId, status, appName, linkedDeviceId, limit = 100, offset = 0 } = req.query;
 
     let query = supabase
         .from('login_records')
@@ -38,6 +38,11 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
     if (appName) {
         query = query.eq('app_name', appName);
     }
+
+    if (linkedDeviceId) {
+        query = query.eq('linked_device_id', linkedDeviceId);
+    }
+
 
     const { data: records, error } = await query;
 
@@ -101,7 +106,7 @@ router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) 
         deviceName,
         deviceType,
         deviceModel,
-        firebaseDeviceId,
+        linkedDeviceId,
         profileName,
         phoneNumber,
         upiId,
@@ -125,7 +130,7 @@ router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) 
             device_name: deviceName,
             device_type: deviceType,
             device_model: deviceModel,
-            firebase_device_id: firebaseDeviceId,
+            linked_device_id: linkedDeviceId,
             profile_name: profileName,
             phone_number: phoneNumber,
             upi_id: upiId,
@@ -170,7 +175,7 @@ router.put('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response
         deviceName,
         deviceType,
         deviceModel,
-        firebaseDeviceId,
+        linkedDeviceId,
         profileName,
         phoneNumber,
         upiId,
@@ -192,7 +197,7 @@ router.put('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response
     if (deviceName !== undefined) updates.device_name = deviceName;
     if (deviceType !== undefined) updates.device_type = deviceType;
     if (deviceModel !== undefined) updates.device_model = deviceModel;
-    if (firebaseDeviceId !== undefined) updates.firebase_device_id = firebaseDeviceId;
+    if (linkedDeviceId !== undefined) updates.linked_device_id = linkedDeviceId;
     if (profileName !== undefined) updates.profile_name = profileName;
     if (phoneNumber !== undefined) updates.phone_number = phoneNumber;
     if (upiId !== undefined) updates.upi_id = upiId;

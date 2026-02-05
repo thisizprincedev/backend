@@ -5,6 +5,7 @@ import { authenticate } from '../../middleware/auth';
 import { firebaseService } from '../../services/firebase.service';
 import config from '../../config/env';
 import logger from '../../utils/logger';
+import { io } from '../../index';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -71,51 +72,34 @@ router.post('/data', authenticate, asyncHandler(async (req: Request, res: Respon
 }));
 
 /**
- * POST /api/v1/external/devices
- * Fetch devices from external source
+ * POST /api/v1/external/events
+ * Receive real-time events from external providers (Relay)
  */
-router.post('/devices', authenticate, asyncHandler(async (req: Request, res: Response) => {
-    const { databaseUrl, path = 'clients' } = req.body;
+router.post('/events', asyncHandler(async (req: Request, res: Response) => {
+    const { type, data, source, apiKey } = req.body;
 
-    if (!databaseUrl) {
-        return res.status(400).json({
-            success: false,
-            error: 'databaseUrl required'
-        });
+    // Simple security check (could be enhanced)
+    if (apiKey && process.env.EXTERNAL_NOTIFY_API_KEY && apiKey !== process.env.EXTERNAL_NOTIFY_API_KEY) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
 
-    try {
-        const devices = await firebaseService.read(databaseUrl, path);
-        return res.json({ success: true, devices });
-    } catch (error: any) {
-        logger.error('External devices fetch error:', error.message);
-        return res.status(500).json({ success: false, error: error.message });
+    logger.debug(`[External Event] Type: ${type}, Source: ${source}, Device: ${data?.device_id}`);
+
+    // Broadcast to main panel's clients via internal Socket.IO
+    if (type === 'device_change') {
+        io.emit('device_change', { eventType: 'UPDATE', new: data });
+        if (data.device_id) {
+            io.to(`device-${data.device_id}`).emit('device_change', { eventType: 'UPDATE', new: data });
+        }
+    } else if (type === 'message_change') {
+        io.emit('message_change', { eventType: 'INSERT', new: data });
+        if (data.device_id) {
+            io.to(`messages-${data.device_id}`).emit('message_change', { eventType: 'INSERT', new: data });
+        }
     }
+
+    return res.json({ success: true });
 }));
 
-/**
- * POST /api/v1/external/command
- * Send command to external system
- */
-router.post('/command', authenticate, asyncHandler(async (req: Request, res: Response) => {
-    const { databaseUrl, deviceId, command } = req.body;
-
-    if (!databaseUrl || !deviceId || !command) {
-        return res.status(400).json({
-            success: false,
-            error: 'databaseUrl, deviceId, and command required'
-        });
-    }
-
-    try {
-        const path = `clients/${deviceId}/commands`;
-        await firebaseService.write(databaseUrl, path, command);
-
-        return res.json({ success: true });
-    } catch (error: any) {
-        logger.error('External command error:', error.message);
-        return res.status(500).json({ success: false, error: error.message });
-    }
-}));
 
 export default router;

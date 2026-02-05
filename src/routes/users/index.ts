@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import config from '../../config/env';
 import { authenticate, requireRole } from '../../middleware/auth';
 import logger from '../../utils/logger';
+import { logActivity } from '../../utils/auditLogger';
+import prisma from '../../lib/prisma';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -58,10 +60,21 @@ router.get('/:id', authenticate, async (req, res) => {
             .eq('id', id)
             .single();
 
-        if (error) throw error;
+        if (error) {
+            logger.error(`Error fetching user ${id}:`, error);
+            throw error;
+        }
+
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
+
+        // Fetch settings separately to avoid join issues
+        const { data: settings } = await supabase
+            .from('user_settings')
+            .select('*')
+            .eq('user_id', id.toString())
+            .maybeSingle();
 
         return res.json({
             success: true,
@@ -76,6 +89,7 @@ router.get('/:id', authenticate, async (req, res) => {
                 geelarkApiKey: user.geelark_api_key,
                 is2faEnabled: user.is_2fa_enabled,
                 avatarUrl: user.avatar_url,
+                settings: settings || null,
             },
         });
     } catch (error: any) {
@@ -119,7 +133,39 @@ router.patch('/:id', authenticate, async (req, res) => {
             .select()
             .single();
 
-        if (error) throw error;
+        if (error) {
+            logger.error(`Error updating user profile ${id}:`, error);
+            throw error;
+        }
+
+        // Handle settings upsert if provided
+        if (req.body.settings) {
+            const { error: settingsError } = await supabase
+                .from('user_settings')
+                .upsert({
+                    user_id: id.toString(),
+                    ...req.body.settings,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'user_id' });
+
+            if (settingsError) {
+                logger.error(`User settings upsert error for user ${id}:`, settingsError);
+                // We don't fail the whole request, but log it
+            }
+        }
+
+        // Log profile update
+        await logActivity({
+            userId: req.user!.id,
+            action: 'profile_updated',
+            details: {
+                targetUserId: id,
+                updatedFields: Object.keys(updates),
+                hasSettingsUpdate: !!req.body.settings
+            },
+            ip: req.ip,
+            userAgent: req.headers['user-agent']
+        });
 
         return res.json({
             success: true,
@@ -128,6 +174,13 @@ router.patch('/:id', authenticate, async (req, res) => {
                 email: user.email,
                 displayName: user.display_name,
                 role: user.role,
+                createdAt: user.created_at,
+                firebaseUid: user.firebase_uid,
+                telegramChatId: user.telegram_chat_id,
+                geelarkApiKey: user.geelark_api_key,
+                is2faEnabled: user.is_2fa_enabled,
+                avatarUrl: user.avatar_url,
+                settings: req.body.settings || null,
             },
         });
     } catch (error: any) {
@@ -233,6 +286,95 @@ router.post('/admin', authenticate, requireRole(['admin']), async (req, res) => 
             success: false,
             error: 'Failed to create admin user'
         });
+    }
+});
+
+
+/**
+ * Get user preference
+ * GET /api/v1/users/:id/preferences/:type
+ */
+router.get('/:id/preferences/:type', authenticate, async (req, res) => {
+    try {
+        const { id, type } = req.params;
+
+        // Users can only view their own preferences unless admin
+        if (req.user?.id.toString() !== id.toString() && req.user?.role !== 'admin') {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+
+        const userId = BigInt(id as string);
+        const prefType = type as string;
+
+        const prefs = await prisma.user_filter_preferences.findUnique({
+            where: {
+                user_id_preference_type: {
+                    user_id: userId,
+                    preference_type: prefType
+                }
+            }
+        });
+
+        return res.json({
+            success: true,
+            preferences: prefs?.preferences || null
+        });
+    } catch (error: any) {
+        logger.error('Get preferences error:', error.message);
+        return res.status(500).json({ error: 'Failed to get preferences' });
+    }
+});
+
+/**
+ * Save user preference
+ * POST /api/v1/users/:id/preferences/:type
+ */
+router.post('/:id/preferences/:type', authenticate, async (req, res) => {
+    try {
+        const { id, type } = req.params;
+        const { preferences } = req.body;
+
+        // Users can only save their own preferences unless admin
+        if (req.user?.id.toString() !== id.toString() && req.user?.role !== 'admin') {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+
+        if (preferences === undefined) {
+            return res.status(400).json({ error: 'Preferences payload required' });
+        }
+
+        const userId = BigInt(id as string);
+        const prefType = type as string;
+
+        const result = await prisma.user_filter_preferences.upsert({
+            where: {
+                user_id_preference_type: {
+                    user_id: userId,
+                    preference_type: prefType
+                }
+            },
+            update: {
+                preferences: preferences as any,
+                updated_at: new Date()
+            },
+            create: {
+                user_id: userId,
+                preference_type: prefType,
+                preferences: preferences as any
+            }
+        });
+
+        return res.json({
+            success: true,
+            message: 'Preferences saved successfully',
+            data: {
+                ...result,
+                user_id: result.user_id.toString()
+            }
+        });
+    } catch (error: any) {
+        logger.error('Save preferences error:', error);
+        return res.status(500).json({ error: 'Failed to save preferences' });
     }
 });
 

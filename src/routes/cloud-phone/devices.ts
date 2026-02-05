@@ -16,7 +16,7 @@ const adminOnly = [authenticate, requireRole(['admin'])];
  * List all cloud phone devices with metadata
  */
 router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
-    const { geelarkPhoneId, firebaseDeviceId, autoForwardEnabled, limit = 100 } = req.query;
+    const { geelarkPhoneId, linkedDeviceId, autoForwardEnabled, limit = 100 } = req.query;
 
     let query = supabase
         .from('cloud_phone_devices')
@@ -28,8 +28,8 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
         query = query.eq('geelark_phone_id', geelarkPhoneId);
     }
 
-    if (firebaseDeviceId) {
-        query = query.eq('firebase_device_id', firebaseDeviceId);
+    if (linkedDeviceId) {
+        query = query.eq('linked_device_id', linkedDeviceId);
     }
 
     if (autoForwardEnabled !== undefined) {
@@ -44,7 +44,7 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
         success: true,
         devices: devices.map(device => ({
             geelarkPhoneId: device.geelark_phone_id,
-            firebaseDeviceId: device.firebase_device_id,
+            linkedDeviceId: device.linked_device_id,
             bankAssigned: device.bank_assigned,
             loginDoneAt: device.login_done_at,
             phoneNumber: device.phone_number,
@@ -84,7 +84,7 @@ router.get('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, r
         success: true,
         device: {
             geelarkPhoneId: device.geelark_phone_id,
-            firebaseDeviceId: device.firebase_device_id,
+            linkedDeviceId: device.linked_device_id,
             bankAssigned: device.bank_assigned,
             loginDoneAt: device.login_done_at,
             phoneNumber: device.phone_number,
@@ -105,7 +105,7 @@ router.get('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, r
 router.put('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { geelarkPhoneId } = req.params;
     const {
-        firebaseDeviceId,
+        linkedDeviceId,
         bankAssigned,
         loginDoneAt,
         phoneNumber,
@@ -119,7 +119,7 @@ router.put('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, r
         updated_at: new Date().toISOString(),
     };
 
-    if (firebaseDeviceId !== undefined) updates.firebase_device_id = firebaseDeviceId;
+    if (linkedDeviceId !== undefined) updates.linked_device_id = linkedDeviceId;
     if (bankAssigned !== undefined) updates.bank_assigned = bankAssigned;
     if (loginDoneAt !== undefined) updates.login_done_at = loginDoneAt;
     if (phoneNumber !== undefined) updates.phone_number = phoneNumber;
@@ -170,7 +170,7 @@ router.put('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, r
         success: true,
         device: {
             geelarkPhoneId: result.geelark_phone_id,
-            firebaseDeviceId: result.firebase_device_id,
+            linkedDeviceId: result.linked_device_id,
             bankAssigned: result.bank_assigned,
             loginDoneAt: result.login_done_at,
             phoneNumber: result.phone_number,

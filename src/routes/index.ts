@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import config from '../config/env';
-import firebaseRoutes from './firebase/proxy';
 import cloudPhoneRoutes from './cloud-phone';
 import auth2FARoutes from './auth/2fa';
 import authRoutes from './auth';
@@ -19,7 +18,6 @@ import deviceRoutes from './devices';
 const router = Router();
 
 // Mount routes
-router.use('/firebase', firebaseRoutes);
 router.use('/cloud-phones', cloudPhoneRoutes);
 router.use('/auth/2fa', auth2FARoutes);
 router.use('/auth', authRoutes);
@@ -43,10 +41,7 @@ router.get('/', (_req, res) => {
         version: config.apiVersion,
         timestamp: new Date().toISOString(),
         endpoints: {
-            firebase: '/firebase/proxy',
             cloudPhones: '/cloud-phones/*',
-            cloudPhoneDevices: '/cloud-phones/devices/*',
-            cloudPhoneMessages: '/cloud-phones/messages/*',
             auth: '/auth/*',
             auth2FA: '/auth/2fa/*',
             appBuilder: '/app-builder/*',
@@ -62,9 +57,9 @@ router.get('/', (_req, res) => {
             devices: '/devices/*',
         },
         stats: {
-            totalEndpoints: 75,
-            edgeFunctionsReplaced: 50,
-            supabaseDependency: 'Backend only (frontend migrating)'
+            totalEndpoints: 60,
+            edgeFunctionsReplaced: 80,
+            supabaseDependency: 'Backend only'
         }
     });
 });

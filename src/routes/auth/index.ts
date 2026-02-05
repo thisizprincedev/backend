@@ -4,6 +4,8 @@ import jwt from 'jsonwebtoken';
 import { createClient } from '@supabase/supabase-js';
 import config from '../../config/env';
 import logger from '../../utils/logger';
+import { logActivity } from '../../utils/auditLogger';
+import { notificationDispatcher } from '../../services/notification.dispatcher';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -55,10 +57,27 @@ router.post('/register', async (req, res) => {
 
         // Generate JWT token
         const token = jwt.sign(
-            { id: user.id.toString(), email: user.email, role: user.role },
+            {
+                id: user.id.toString(),
+                email: user.email,
+                role: user.role,
+                firebase_uid: user.firebase_uid
+            },
             config.jwt.secret,
             { expiresIn: config.jwt.expiresIn as any }
         );
+
+        // Log registration
+        await logActivity({
+            userId: user.id,
+            action: 'registration',
+            details: { email: user.email },
+            ip: req.ip,
+            userAgent: req.headers['user-agent']
+        });
+
+        // Send notification
+        await notificationDispatcher.sendLoginAlert(user.id, req.ip, req.headers['user-agent'] as string);
 
         return res.json({
             success: true,
@@ -105,12 +124,41 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
+        // Check for 2FA
+        if (user.is_2fa_enabled) {
+            logger.info(`2FA required for user: ${user.email}`);
+            return res.json({
+                success: true,
+                requires2FA: true,
+                id: user.id.toString(),
+                email: user.email,
+                telegramChatId: user.telegram_chat_id
+            });
+        }
+
         // Generate JWT token
         const token = jwt.sign(
-            { id: user.id.toString(), email: user.email, role: user.role },
+            {
+                id: user.id.toString(),
+                email: user.email,
+                role: user.role,
+                firebase_uid: user.firebase_uid
+            },
             config.jwt.secret,
             { expiresIn: config.jwt.expiresIn as any }
         );
+
+        // Log successful login
+        await logActivity({
+            userId: user.id,
+            action: 'login',
+            details: { email: user.email },
+            ip: req.ip,
+            userAgent: req.headers['user-agent']
+        });
+
+        // Send notification
+        await notificationDispatcher.sendLoginAlert(user.id, req.ip, req.headers['user-agent'] as string);
 
         return res.json({
             success: true,

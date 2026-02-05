@@ -11,6 +11,7 @@ declare global {
                 id: string;
                 email: string;
                 role?: string;
+                firebase_uid?: string;
             };
         }
     }
@@ -42,6 +43,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
             id: decoded.id.toString(),
             email: decoded.email || '',
             role: decoded.role || 'viewer',
+            firebase_uid: decoded.firebase_uid,
         };
 
         return next();
@@ -72,6 +74,7 @@ export const optionalAuth = async (req: Request, _res: Response, next: NextFunct
                 id: decoded.id.toString(),
                 email: decoded.email || '',
                 role: decoded.role || 'viewer',
+                firebase_uid: decoded.firebase_uid,
             };
         }
 

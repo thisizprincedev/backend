@@ -38,6 +38,11 @@ interface Config {
     socket: {
         corsOrigin: string[];
     };
+    mqtt: {
+        url: string;
+        username?: string;
+        password?: string;
+    };
     logging: {
         level: string;
     };
@@ -106,6 +111,11 @@ const config: Config = {
         corsOrigin: process.env.SOCKET_CORS_ORIGIN?.split(',') || ['http://localhost:5173'],
     },
 
+    mqtt: {
+        url: process.env.MQTT_URL || 'mqtt://localhost:1883',
+        username: process.env.MQTT_USERNAME,
+        password: process.env.MQTT_PASSWORD,
+    },
     logging: {
         level: process.env.LOG_LEVEL || 'info',
     },

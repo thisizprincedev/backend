@@ -4,6 +4,7 @@ import { asyncHandler } from '../../middleware/errorHandler';
 import { telegramService } from '../../services/telegram.service';
 import config from '../../config/env';
 import logger from '../../utils/logger';
+import { notificationDispatcher } from '../../services/notification.dispatcher';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -119,8 +120,43 @@ router.post('/verify', asyncHandler(async (req: Request, res: Response) => {
         .update({ used: true })
         .eq('id', codeRecord.id);
 
+    // Get user for token generation
+    const { data: user, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', supabaseUserId)
+        .single();
+
+    if (profileError || !user) {
+        logger.error('Error fetching user for 2FA token:', profileError);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+
+    // Generate JWT token
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+        {
+            id: user.id.toString(),
+            email: user.email,
+            role: user.role,
+            firebase_uid: user.firebase_uid
+        },
+        config.jwt.secret,
+        { expiresIn: config.jwt.expiresIn as any }
+    );
+
+    // Send notification
+    await notificationDispatcher.sendLoginAlert(user.id, req.ip, req.headers['user-agent'] as string);
+
     return res.json({
-        success: true
+        success: true,
+        token,
+        user: {
+            id: user.id.toString(),
+            email: user.email,
+            displayName: user.display_name,
+            role: user.role,
+        }
     });
 }));
 

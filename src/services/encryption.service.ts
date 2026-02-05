@@ -47,12 +47,21 @@ export class EncryptionService {
      * Decrypt an encrypted payload
      */
     decrypt(encrypted: any): Record<string, unknown> {
-        if (!encrypted || encrypted.v !== 1 || encrypted.alg !== 'AES-GCM') {
+        let data = encrypted;
+        if (typeof data === 'string') {
+            try {
+                data = JSON.parse(data);
+            } catch (e) {
+                throw new Error('Invalid encrypted data format: not valid JSON string');
+            }
+        }
+
+        if (!data || data.v !== 1 || data.alg !== 'AES-GCM') {
             throw new Error('Invalid encrypted data format');
         }
 
-        const iv = Buffer.from(encrypted.iv, 'base64');
-        const ct = Buffer.from(encrypted.ct, 'base64');
+        const iv = Buffer.from(data.iv, 'base64');
+        const ct = Buffer.from(data.ct, 'base64');
 
         // Last 16 bytes are the auth tag
         const authTag = ct.slice(-16);

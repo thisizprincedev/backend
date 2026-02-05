@@ -35,11 +35,12 @@ export class CloudPhoneManager {
     /**
      * Control phone with real-time updates
      */
-    async controlPhone(apiKey: string, phoneId: string, action: string) {
+    async controlPhone(apiKey: string, phoneId: string, action: string, extra: any = {}) {
         this.emitStatus(phoneId, action + 'ing', 30);
 
         try {
-            const result = await geelarkService.controlPhone(apiKey, phoneId, action);
+            const result = await geelarkService.controlPhone(apiKey, phoneId, action, extra);
+
 
             if (result.code === 0) {
                 const status = action === 'stop' ? 'stopped' : 'restarted';

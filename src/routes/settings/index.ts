@@ -4,6 +4,7 @@ import config from '../../config/env';
 import { authenticate } from '../../middleware/auth';
 import { asyncHandler } from '../../middleware/errorHandler';
 import logger from '../../utils/logger';
+import { logActivity } from '../../utils/auditLogger';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -138,6 +139,15 @@ router.post('/global/:key', authenticate, asyncHandler(async (req: Request, res:
         result = data;
     }
 
+    // Log the change
+    await logActivity({
+        userId: userId,
+        action: 'settings_updated',
+        details: { key, value },
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+    });
+
     logger.info(`Global config ${existing ? 'updated' : 'created'}: ${key} by user ${userId}`);
 
     let resultValue = result.config_value;
@@ -173,6 +183,15 @@ router.delete('/global/:key', authenticate, asyncHandler(async (req: Request, re
         .eq('config_key', key);
 
     if (error) throw error;
+
+    // Log the deletion
+    await logActivity({
+        userId: req.user!.id,
+        action: 'settings_updated',
+        details: { key, action: 'deleted' },
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+    });
 
     logger.info(`Global config deleted: ${key} by user ${req.user!.id}`);
 

@@ -60,28 +60,21 @@ router.post('/sync', authenticate, asyncHandler(async (req: Request, res: Respon
  * POST /api/v1/audit/log
  * Log user action
  */
-/**
- * POST /api/v1/audit/log
- * Log user action
- */
 router.post('/log', authenticate, asyncHandler(async (req: Request, res: Response) => {
-    // ... existing POST log logic ...
     const userId = req.user!.id;
-    const { action, resourceType, resourceId, details } = req.body;
+    const { action, details } = req.body;
 
     if (!action) {
         return res.status(400).json({ success: false, error: 'Action required' });
     }
 
-    try { // Added try block
+    try {
         const { error } = await supabase
             .from('user_action_logs')
             .insert({
                 user_id: userId,
-                action,
-                resource_type: resourceType,
-                resource_id: resourceId,
-                details,
+                action: action,
+                details: details,
                 ip_address: req.ip,
                 user_agent: req.headers['user-agent'],
             });
@@ -92,7 +85,7 @@ router.post('/log', authenticate, asyncHandler(async (req: Request, res: Respons
         }
 
         return res.json({ success: true });
-    } catch (error: any) { // Added catch block
+    } catch (error: any) {
         logger.error('Audit log error:', error);
         return res.status(500).json({ success: false, error: 'Failed to log action' });
     }
@@ -103,13 +96,13 @@ router.post('/log', authenticate, asyncHandler(async (req: Request, res: Respons
  * List activity logs
  */
 router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Response) => {
-    const { action, userId, dateFrom, dateTo, search, page = 1, limit = 15 } = req.query;
+    const { action, userId, dateFrom, dateTo, page = 1, limit = 15 } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
 
-    // 1. Fetch Logs (without join)
+    // 1. Fetch Logs
     let query = supabase
         .from('user_action_logs')
         .select('*', { count: 'exact' })
@@ -132,19 +125,6 @@ router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Respons
         query = query.lte('created_at', String(dateTo));
     }
 
-    // Since Supabase doesn't support complex OR filters easily on related text fields via JS client for search,
-    // we handle simple search here or use a view/rpc if complex text search is needed.
-    // For now, let's filter by matching user_id if search looks like a UUID or email if possible.
-    // Note: Complex JSON search on 'details' column via Supabase JS is limited.
-    if (search) {
-        // This is a basic implementation. For full-text search, consider using .textSearch() or RPC.
-        // Trying a simple ILIKE on casted columns if possible, but JS client is restrictive.
-        // We will skip complex search implementation here to avoid 400s and stick to client-side filtering 
-        // if dataset is small, OR implement a robust RPC.
-        // Given current robust requirement, let's try a simple filter on available text columns.
-        // query = query.or(`user_id.eq.${search},action.ilike.%${search}%`); // Example attempt
-    }
-
     // Pagination
     query = query.range(offset, offset + limitNum - 1);
 
@@ -155,7 +135,7 @@ router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Respons
         return res.status(500).json({ success: false, error: 'Failed to fetch logs: ' + error.message });
     }
 
-    // 2. Fetch User Profiles manually
+    // 2. Fetch User Profiles manually for enrichment
     let enrichedLogs: any[] = [];
     if (logs && logs.length > 0) {
         // Extract unique user IDs
@@ -164,32 +144,30 @@ router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Respons
         if (userIds.length > 0) {
             const { data: profiles, error: profileError } = await supabase
                 .from('user_profiles')
-                .select('supabase_user_id, email, display_name')
-                .in('supabase_user_id', userIds);
+                .select('id, email, display_name, avatar_url')
+                .in('id', userIds);
 
             if (profileError) {
                 logger.warn('Failed to fetch user profiles for logs:', profileError);
-                // Continue without user details
                 enrichedLogs = logs;
             } else {
                 // Map profiles for O(1) lookup
                 const profileMap = new Map();
                 profiles?.forEach((p: any) => {
-                    profileMap.set(p.supabase_user_id, p);
+                    profileMap.set(p.id, p);
                 });
 
                 // Merge
                 enrichedLogs = logs.map((log: any) => ({
                     ...log,
                     user_profiles: profileMap.get(log.user_id) || null
-                    // Note: Front-end expects 'user_profiles' property with email, display_name
                 }));
             }
         } else {
             enrichedLogs = logs;
         }
     } else {
-        enrichedLogs = []; // No logs, so no enriched logs
+        enrichedLogs = [];
     }
 
     return res.json({

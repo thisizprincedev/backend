@@ -4,6 +4,7 @@ import config from '../../config/env';
 import { authenticate } from '../../middleware/auth';
 import logger from '../../utils/logger';
 import { io } from '../../index';
+import { ProviderFactory } from '../../providers/factory';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -50,24 +51,14 @@ router.get('/', authenticate, async (req, res) => {
  */
 router.post('/', authenticate, async (req, res) => {
     try {
-        const { deviceId, command, payload } = req.body;
+        const { deviceId, command, payload, appId } = req.body;
 
         if (!deviceId || !command) {
             return res.status(400).json({ error: 'deviceId and command are required' });
         }
 
-        const { data: cmd, error } = await supabase
-            .from('device_commands')
-            .insert([{
-                device_id: deviceId,
-                command,
-                payload: payload || null,
-                status: 'pending',
-            }])
-            .select()
-            .single();
-
-        if (error) throw error;
+        const provider = await ProviderFactory.getProvider(appId);
+        const cmd = await provider.sendCommand(deviceId, command, payload);
 
         return res.json({
             success: true,

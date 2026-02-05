@@ -16,7 +16,7 @@ const adminOnly = [authenticate, requireRole(['admin'])];
  * List all cloud phone device mappings
  */
 router.get('/mappings', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
-    const { geelarkPhoneId, firebaseDeviceId, autoForwardEnabled, limit = 100 } = req.query;
+    const { geelarkPhoneId, linkedDeviceId, autoForwardEnabled, limit = 100 } = req.query;
 
     let query = supabase
         .from('cloud_phone_devices')
@@ -25,7 +25,7 @@ router.get('/mappings', ...adminOnly, asyncHandler(async (req: Request, res: Res
         .limit(Number(limit));
 
     if (geelarkPhoneId) query = query.eq('geelark_phone_id', geelarkPhoneId);
-    if (firebaseDeviceId) query = query.eq('firebase_device_id', firebaseDeviceId);
+    if (linkedDeviceId) query = query.eq('linked_device_id', linkedDeviceId);
     if (autoForwardEnabled !== undefined) query = query.eq('auto_forward_enabled', autoForwardEnabled === 'true');
 
     const { data: devices, error } = await query;
@@ -35,7 +35,7 @@ router.get('/mappings', ...adminOnly, asyncHandler(async (req: Request, res: Res
         success: true,
         devices: devices.map(device => ({
             geelarkPhoneId: device.geelark_phone_id,
-            firebaseDeviceId: device.firebase_device_id,
+            linkedDeviceId: device.linked_device_id,
             bankAssigned: device.bank_assigned,
             loginDoneAt: device.login_done_at,
             phoneNumber: device.phone_number,
@@ -69,7 +69,7 @@ router.get('/mappings/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: R
         success: true,
         device: {
             geelarkPhoneId: device.geelark_phone_id,
-            firebaseDeviceId: device.firebase_device_id,
+            linkedDeviceId: device.linked_device_id,
             bankAssigned: device.bank_assigned,
             loginDoneAt: device.login_done_at,
             phoneNumber: device.phone_number,
@@ -90,26 +90,40 @@ router.get('/mappings/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: R
 router.put('/mappings/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const { geelarkPhoneId } = req.params;
     const {
-        firebaseDeviceId,
-        bankAssigned,
-        loginDoneAt,
-        phoneNumber,
+        linkedDeviceId, linked_device_id,
+        firebaseDeviceId, firebase_device_id,
+        firebaseId, firebase_id,
+        bankAssigned, bank_assigned,
+        loginDoneAt, login_done_at,
+        phoneNumber, phone_number,
         metadata,
         balance,
-        upiPin,
-        autoForwardEnabled,
+        upiPin, upi_pin,
+        autoForwardEnabled, auto_forward_enabled,
     } = req.body;
 
     const updates: any = { updated_at: new Date().toISOString() };
 
-    if (firebaseDeviceId !== undefined) updates.firebase_device_id = firebaseDeviceId;
-    if (bankAssigned !== undefined) updates.bank_assigned = bankAssigned;
-    if (loginDoneAt !== undefined) updates.login_done_at = loginDoneAt;
-    if (phoneNumber !== undefined) updates.phone_number = phoneNumber;
+    const effectiveLinkedDeviceId = [linkedDeviceId, linked_device_id, firebaseDeviceId, firebase_device_id, firebaseId, firebase_id].find(v => v !== undefined);
+    if (effectiveLinkedDeviceId !== undefined) updates.linked_device_id = effectiveLinkedDeviceId;
+
+    const effectiveBankAssigned = [bankAssigned, bank_assigned].find(v => v !== undefined);
+    if (effectiveBankAssigned !== undefined) updates.bank_assigned = effectiveBankAssigned;
+
+    const effectiveLoginDoneAt = [loginDoneAt, login_done_at].find(v => v !== undefined);
+    if (effectiveLoginDoneAt !== undefined) updates.login_done_at = effectiveLoginDoneAt;
+
+    const effectivePhoneNumber = [phoneNumber, phone_number].find(v => v !== undefined);
+    if (effectivePhoneNumber !== undefined) updates.phone_number = effectivePhoneNumber;
+
     if (metadata !== undefined) updates.metadata = metadata;
     if (balance !== undefined) updates.balance = balance;
-    if (upiPin !== undefined) updates.upi_pin = upiPin;
-    if (autoForwardEnabled !== undefined) updates.auto_forward_enabled = autoForwardEnabled;
+
+    const effectiveUpiPin = [upiPin, upi_pin].find(v => v !== undefined);
+    if (effectiveUpiPin !== undefined) updates.upi_pin = effectiveUpiPin;
+
+    const effectiveAutoForward = [autoForwardEnabled, auto_forward_enabled].find(v => v !== undefined);
+    if (effectiveAutoForward !== undefined) updates.auto_forward_enabled = effectiveAutoForward;
 
     const { data: existing } = await supabase
         .from('cloud_phone_devices')
@@ -117,43 +131,46 @@ router.put('/mappings/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: R
         .eq('geelark_phone_id', geelarkPhoneId)
         .maybeSingle();
 
-    let result;
-    if (existing) {
-        const { data, error } = await supabase
-            .from('cloud_phone_devices')
-            .update(updates)
-            .eq('geelark_phone_id', geelarkPhoneId)
-            .select()
-            .single();
-        if (error) throw error;
-        result = data;
-    } else {
-        const { data, error } = await supabase
-            .from('cloud_phone_devices')
-            .insert({ geelark_phone_id: geelarkPhoneId, ...updates })
-            .select()
-            .single();
-        if (error) throw error;
-        result = data;
-    }
+    const result = existing
+        ? (async () => {
+            const { data, error } = await supabase
+                .from('cloud_phone_devices')
+                .update(updates)
+                .eq('geelark_phone_id', geelarkPhoneId)
+                .select()
+                .single();
+            if (error) throw error;
+            return data;
+        })()
+        : (async () => {
+            const { data, error } = await supabase
+                .from('cloud_phone_devices')
+                .insert({ geelark_phone_id: geelarkPhoneId, ...updates })
+                .select()
+                .single();
+            if (error) throw error;
+            return data;
+        })();
 
-    io.emit('device_change', { eventType: existing ? 'UPDATE' : 'INSERT', new: result });
-    io.to(`device-${geelarkPhoneId}`).emit('device_change', { eventType: existing ? 'UPDATE' : 'INSERT', new: result });
+    const data = await result;
+
+    io.emit('device_change', { eventType: existing ? 'UPDATE' : 'INSERT', new: data });
+    io.to(`device-${geelarkPhoneId}`).emit('device_change', { eventType: existing ? 'UPDATE' : 'INSERT', new: data });
 
     res.json({
         success: true,
         device: {
-            geelarkPhoneId: result.geelark_phone_id,
-            firebaseDeviceId: result.firebase_device_id,
-            bankAssigned: result.bank_assigned,
-            loginDoneAt: result.login_done_at,
-            phoneNumber: result.phone_number,
-            metadata: result.metadata,
-            balance: result.balance,
-            upiPin: result.upi_pin,
-            autoForwardEnabled: result.auto_forward_enabled,
-            createdAt: result.created_at,
-            updatedAt: result.updated_at,
+            geelarkPhoneId: data.geelark_phone_id,
+            linkedDeviceId: data.linked_device_id,
+            bankAssigned: data.bank_assigned,
+            loginDoneAt: data.login_done_at,
+            phoneNumber: data.phone_number,
+            metadata: data.metadata,
+            balance: data.balance,
+            upiPin: data.upi_pin,
+            autoForwardEnabled: data.auto_forward_enabled,
+            createdAt: data.created_at,
+            updatedAt: data.updated_at,
         },
     });
 }));

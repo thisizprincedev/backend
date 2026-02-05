@@ -31,7 +31,10 @@ export class FirebaseService {
             this.serviceAccount.client_email,
             undefined,
             this.serviceAccount.private_key,
-            ['https://www.googleapis.com/auth/firebase.database']
+            [
+                'https://www.googleapis.com/auth/firebase.database',
+                'https://www.googleapis.com/auth/userinfo.email'
+            ]
         );
 
         const tokens = await jwtClient.authorize();
@@ -49,10 +52,15 @@ export class FirebaseService {
     async read(databaseUrl: string, path: string): Promise<any> {
         try {
             const token = await this.getAccessToken();
-            const url = `${databaseUrl.replace(/\/$/, '')}/${path}.json?access_token=${token}`;
+            const url = `${databaseUrl.replace(/\/$/, '')}/${path}.json`;
 
             logger.debug(`Firebase read: ${path}`);
-            const response = await axios.get(url);
+            const response = await axios.get(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
 
             return response.data;
         } catch (error: any) {
@@ -60,7 +68,7 @@ export class FirebaseService {
 
             // Check for permission errors
             if (error.response?.status === 401 || error.response?.status === 403) {
-                return { error: 'Permission denied', useClientAuth: true };
+                return null;
             }
 
             throw error;
@@ -73,11 +81,14 @@ export class FirebaseService {
     async write(databaseUrl: string, path: string, data: any): Promise<any> {
         try {
             const token = await this.getAccessToken();
-            const url = `${databaseUrl.replace(/\/$/, '')}/${path}.json?access_token=${token}`;
+            const url = `${databaseUrl.replace(/\/$/, '')}/${path}.json`;
 
             logger.debug(`Firebase write: ${path}`);
             const response = await axios.put(url, data, {
-                headers: { 'Content-Type': 'application/json' }
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
             });
 
             return response.data;
@@ -98,10 +109,15 @@ export class FirebaseService {
     async delete(databaseUrl: string, path: string): Promise<any> {
         try {
             const token = await this.getAccessToken();
-            const url = `${databaseUrl.replace(/\/$/, '')}/${path}.json?access_token=${token}`;
+            const url = `${databaseUrl.replace(/\/$/, '')}/${path}.json`;
 
             logger.debug(`Firebase delete: ${path}`);
-            const response = await axios.delete(url);
+            const response = await axios.delete(url, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
 
             return response.data;
         } catch (error: any) {

@@ -4,7 +4,6 @@ import { geelarkService } from '../../services/geelark.service';
 import { authenticate, requireRole } from '../../middleware/auth';
 import webhookRoutes from './webhooks';
 import profilesRoutes from './profiles';
-import dataRoutes from './data';
 import { cloudPhoneManager } from '../../services/cloudPhoneManager';
 
 const router = Router();
@@ -12,7 +11,6 @@ const router = Router();
 // Mount sub-routes
 router.use('/webhooks', webhookRoutes);
 router.use('/profiles', authenticate, requireRole(['admin']), profilesRoutes);
-router.use('/data', authenticate, requireRole(['admin']), dataRoutes);
 
 const adminOnly = [authenticate, requireRole(['admin'])];
 
@@ -106,6 +104,26 @@ router.post('/:id/control', ...adminOnly, asyncHandler(async (req: Request, res:
     const result = await cloudPhoneManager.controlPhone(apiKey as string, id as string, action as string);
     return res.json(result);
 }));
+
+/**
+ * POST /api/v1/cloud-phones/:id/send-sms
+ * Send SMS from cloud phone
+ */
+router.post('/:id/send-sms', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { apiKey, phoneNumber, text } = req.body;
+
+    if (!apiKey || !phoneNumber || !text) {
+        return res.status(400).json({ error: 'API key, phoneNumber, and text required' });
+    }
+
+    const result = await cloudPhoneManager.controlPhone(apiKey as string, id as string, 'sendSms', {
+        phoneNumber,
+        text
+    });
+    return res.json(result);
+}));
+
 
 /**
  * GET /api/v1/cloud-phones/:id/status

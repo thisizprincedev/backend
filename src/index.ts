@@ -19,6 +19,13 @@ import { initSocket } from './socket';
 
 const io = initSocket(httpServer);
 
+// Initialize Backend Realtime Registry (Scaling for 100k+ devices)
+import { realtimeRegistry } from './services/realtimeRegistry';
+import { mqttBridge } from './services/MqttBridge';
+
+realtimeRegistry.init().catch(err => logger.error('RealtimeRegistry init failed:', err));
+mqttBridge.init();
+
 // Middleware
 app.use(helmet());
 app.use(cors({

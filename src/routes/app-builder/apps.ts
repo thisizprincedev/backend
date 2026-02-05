@@ -295,15 +295,43 @@ export async function triggerGitHubBuild(appId: string, userId: string) {
         if (app.db_provider_type === 'SUPABASE' && globalProviderConfig.supabase) {
             baseConfig.supabase_url = globalProviderConfig.supabase.url;
             baseConfig.supabase_anon_key = globalProviderConfig.supabase.anonKey;
+
+            // Add nested structure for ProviderFactory compatibility
+            if (!decryptedConfig.supabase) decryptedConfig.supabase = {};
+            decryptedConfig.supabase.url = decryptedConfig.supabase.url || globalProviderConfig.supabase.url;
+            decryptedConfig.supabase.anonKey = decryptedConfig.supabase.anonKey || globalProviderConfig.supabase.anonKey;
         } else if (app.db_provider_type === 'FIREBASE' && globalProviderConfig.firebase) {
             baseConfig.firebase_database_url = globalProviderConfig.firebase.databaseUrl;
             baseConfig.firebase_api_key = globalProviderConfig.firebase.apiKey;
             baseConfig.firebase_app_id = globalProviderConfig.firebase.appId;
             baseConfig.firebase_project_id = globalProviderConfig.firebase.projectId;
+
+            // Add nested structure for ProviderFactory compatibility
+            if (!decryptedConfig.firebase) decryptedConfig.firebase = {};
+            decryptedConfig.firebase.databaseURL = decryptedConfig.firebase.databaseURL || globalProviderConfig.firebase.databaseUrl;
+            decryptedConfig.firebase.apiKey = decryptedConfig.firebase.apiKey || globalProviderConfig.firebase.apiKey;
+            decryptedConfig.firebase.appId = decryptedConfig.firebase.appId || globalProviderConfig.firebase.appId;
+            decryptedConfig.firebase.projectId = decryptedConfig.firebase.projectId || globalProviderConfig.firebase.projectId;
         } else if (app.db_provider_type === 'SOCKET_IO' && globalProviderConfig.socketio) {
             baseConfig.socketio_server_url = globalProviderConfig.socketio.serverUrl;
+
+            // Add nested structure for ProviderFactory compatibility
+            if (!decryptedConfig.socketio) decryptedConfig.socketio = {};
+            decryptedConfig.socketio.serverUrl = decryptedConfig.socketio.serverUrl || globalProviderConfig.socketio.serverUrl;
         }
         decryptedConfig = { ...baseConfig, ...decryptedConfig };
+
+        // PERSIST the resolved config back to the app so ProviderFactory can use it
+        try {
+            const newEncryptedConfig = encryptionService.encrypt(decryptedConfig);
+            await supabase
+                .from('app_builder_apps')
+                .update({ encrypted_config: newEncryptedConfig })
+                .eq('id', appId);
+            logger.info(`Updated encrypted_config for app ${appId} with resolved provider details.`);
+        } catch (saveErr: any) {
+            logger.error(`Failed to save resolved config for app ${appId}:`, saveErr.message);
+        }
     }
 
     // Trigger GitHub Workflow
