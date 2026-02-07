@@ -1,7 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
 import config from '../config/env';
 import logger from '../utils/logger';
+
+const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
 // Extend Express Request type
 declare global {
@@ -9,12 +13,46 @@ declare global {
         interface Request {
             user?: {
                 id: string;
+                uuid?: string;
                 email: string;
                 role?: string;
                 firebase_uid?: string;
             };
+            deviceId?: string;
         }
     }
+}
+
+/**
+ * Resolve UUID and other metadata for a decoded token
+ */
+async function resolveUserMetadata(decoded: any) {
+    if (!decoded || !decoded.id) return null;
+
+    let uuid = decoded.uuid;
+
+    // Fallback: fetch UUID if not in token (for seamless migration of existing sessions)
+    // Guard: only query if decoded.id is a number/numeric string to avoid BigInt syntax errors
+    if (!uuid && decoded.id && /^\d+$/.test(decoded.id.toString())) {
+        try {
+            const { data: profile } = await supabase
+                .from('user_profiles')
+                .select('supabase_user_id')
+                .eq('id', decoded.id)
+                .single();
+            uuid = profile?.supabase_user_id;
+        } catch (err) {
+            logger.warn(`Failed to resolve metadata for user ${decoded.id}:`, err);
+        }
+    }
+
+    return {
+        id: decoded.id.toString(),
+        uuid: uuid,
+        email: decoded.email || '',
+        role: decoded.role || 'viewer',
+        firebase_uid: decoded.firebase_uid,
+    };
 }
 
 /**
@@ -33,18 +71,13 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
         // Verify JWT token (custom tokens)
         const decoded = jwt.verify(token, config.jwt.secret) as any;
 
-        if (!decoded || !decoded.id) {
+        const user = await resolveUserMetadata(decoded);
+        if (!user) {
             return res.status(401).json({ error: 'Invalid token' });
         }
 
-        // Attach user to request
-        // Standardizing: id is the numeric user_profiles.id (as string)
-        req.user = {
-            id: decoded.id.toString(),
-            email: decoded.email || '',
-            role: decoded.role || 'viewer',
-            firebase_uid: decoded.firebase_uid,
-        };
+        req.user = user;
+        return next();
 
         return next();
     } catch (error: any) {
@@ -69,13 +102,9 @@ export const optionalAuth = async (req: Request, _res: Response, next: NextFunct
         // to ensure req.user.id is always our numeric profile ID
         const decoded = jwt.verify(token, config.jwt.secret) as any;
 
-        if (decoded && decoded.id) {
-            req.user = {
-                id: decoded.id.toString(),
-                email: decoded.email || '',
-                role: decoded.role || 'viewer',
-                firebase_uid: decoded.firebase_uid,
-            };
+        const user = await resolveUserMetadata(decoded);
+        if (user) {
+            req.user = user;
         }
 
         return next();
@@ -107,4 +136,62 @@ export const requireRole = (roles: string[]) => {
  */
 export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
     return requireRole(['admin'])(req, res, next);
+};
+
+/**
+ * API Key or HMAC authentication for mobile devices with TOFR (Trust on First Registration)
+ */
+export const authenticateDevice = async (req: Request, res: Response, next: NextFunction) => {
+    const apiKey = req.headers['x-api-key'] || req.query.api_key;
+    const signature = req.headers['x-signature'] || req.query.signature;
+    const timestamp = req.headers['x-timestamp'] || req.query.timestamp;
+    const nonce = req.headers['x-nonce'] || req.query.nonce;
+    const deviceId = req.headers['x-device-id'] || req.query.device_id;
+
+    if (!deviceId) {
+        // Fallback to static API key if no device ID is provided (e.g. initial registration)
+        if (apiKey === config.auth.mobileApiKey) {
+            return next();
+        }
+        return res.status(401).json({ error: 'Unauthorized: device_id required for authentication' });
+    }
+
+    try {
+        // Simple HMAC Verification using global static secret
+        if (signature && timestamp && nonce) {
+            // Prevent replay attacks (allow 5 min window)
+            const ts = parseInt(timestamp as string, 10);
+            const now = Math.floor(Date.now() / 1000);
+            if (isNaN(ts) || Math.abs(now - ts) > 300) {
+                return res.status(401).json({ error: 'Unauthorized: Invalid or expired timestamp' });
+            }
+
+            const secret = config.auth.mobileApiKey;
+            const message = `${timestamp}.${nonce}.${deviceId || ''}`;
+            const expectedSignature = crypto
+                .createHmac('sha256', secret)
+                .update(message)
+                .digest('hex');
+
+            if (signature === expectedSignature) {
+                req.deviceId = deviceId as string;
+                return next();
+            }
+
+            logger.warn({ deviceId, ip: req.ip }, 'Invalid HMAC signature attempt');
+            return res.status(401).json({ error: 'Unauthorized: Invalid Signature' });
+        }
+
+        // Fallback to static API Key (Legacy/Initial Registration)
+        if (apiKey === config.auth.mobileApiKey) {
+            req.deviceId = deviceId as string;
+            return next();
+        }
+
+        logger.warn({ deviceId, ip: req.ip }, 'Unauthorized mobile access attempt');
+        return res.status(401).json({ error: 'Unauthorized: Missing or Invalid Authentication' });
+    } catch (error: any) {
+        logger.error({ error: error.message, deviceId }, 'Device authentication error');
+        return res.status(500).json({ error: 'Internal authentication error' });
+    }
 };

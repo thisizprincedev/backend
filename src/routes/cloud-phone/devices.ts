@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import config from '../../config/env';
-import { authenticate, requireRole } from '../../middleware/auth';
+import { authenticate } from '../../middleware/auth';
 import { asyncHandler } from '../../middleware/errorHandler';
 import logger from '../../utils/logger';
 import { io } from '../../index';
@@ -9,20 +9,46 @@ import { io } from '../../index';
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
-const adminOnly = [authenticate, requireRole(['admin'])];
-
 /**
  * GET /api/v1/cloud-phones/devices
  * List all cloud phone devices with metadata
  */
-router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { geelarkPhoneId, linkedDeviceId, autoForwardEnabled, limit = 100 } = req.query;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     let query = supabase
         .from('cloud_phone_devices')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(Number(limit));
+
+    if (!isAdmin) {
+        // Find all app IDs owned by this user
+        const { data: userApps } = await supabase
+            .from('app_builder_apps')
+            .select('id')
+            .eq('owner_id', userId);
+        const appIds = (userApps || []).map(a => a.id);
+
+        if (appIds.length === 0) {
+            return res.json({ success: true, devices: [] });
+        }
+
+        // Find all device IDs for these apps
+        const { data: userDevices } = await supabase
+            .from('devices')
+            .select('device_id')
+            .in('app_id', appIds);
+        const deviceIds = (userDevices || []).map(d => d.device_id);
+
+        if (deviceIds.length === 0) {
+            return res.json({ success: true, devices: [] });
+        }
+
+        query = query.in('linked_device_id', deviceIds);
+    }
 
     if (geelarkPhoneId) {
         query = query.eq('geelark_phone_id', geelarkPhoneId);
@@ -40,7 +66,7 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
 
     if (error) throw error;
 
-    res.json({
+    return res.json({
         success: true,
         devices: devices.map(device => ({
             geelarkPhoneId: device.geelark_phone_id,
@@ -62,14 +88,46 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
  * GET /api/v1/cloud-phones/devices/:geelarkPhoneId
  * Get single cloud phone device metadata
  */
-router.get('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:geelarkPhoneId', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { geelarkPhoneId } = req.params;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     const { data: device, error } = await supabase
         .from('cloud_phone_devices')
         .select('*')
         .eq('geelark_phone_id', geelarkPhoneId)
         .maybeSingle();
+
+    if (error) throw error;
+
+    if (!device) {
+        return res.status(404).json({
+            success: false,
+            error: 'Device not found',
+        });
+    }
+
+    // Verify ownership if not admin
+    if (!isAdmin && device.linked_device_id) {
+        const { data: dbDevice } = await supabase
+            .from('devices')
+            .select('app_id')
+            .eq('device_id', device.linked_device_id)
+            .single();
+
+        if (dbDevice) {
+            const { data: app } = await supabase
+                .from('app_builder_apps')
+                .select('owner_id')
+                .eq('id', dbDevice.app_id)
+                .single();
+
+            if (!app || String(app.owner_id) !== String(userId)) {
+                return res.status(403).json({ success: false, error: 'Forbidden: You do not own this cloud phone' });
+            }
+        }
+    }
 
     if (error) throw error;
 
@@ -102,7 +160,7 @@ router.get('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, r
  * PUT /api/v1/cloud-phones/devices/:geelarkPhoneId
  * Update cloud phone device metadata
  */
-router.put('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.put('/:geelarkPhoneId', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { geelarkPhoneId } = req.params;
     const {
         linkedDeviceId,
@@ -114,6 +172,59 @@ router.put('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, r
         upiPin,
         autoForwardEnabled,
     } = req.body;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
+
+    // Verify ownership if not admin
+    if (!isAdmin) {
+        // If they are linking a device, check if they own that device
+        if (linkedDeviceId) {
+            const { data: device } = await supabase
+                .from('devices')
+                .select('app_id')
+                .eq('device_id', linkedDeviceId)
+                .single();
+
+            if (device) {
+                const { data: app } = await supabase
+                    .from('app_builder_apps')
+                    .select('owner_id')
+                    .eq('id', device.app_id)
+                    .single();
+
+                if (!app || String(app.owner_id) !== String(userId)) {
+                    return res.status(403).json({ success: false, error: 'Forbidden: You do not own the device you are trying to link' });
+                }
+            }
+        }
+
+        // If it's an existing device, check current ownership
+        const { data: existingDevice } = await supabase
+            .from('cloud_phone_devices')
+            .select('linked_device_id')
+            .eq('geelark_phone_id', geelarkPhoneId)
+            .maybeSingle();
+
+        if (existingDevice?.linked_device_id) {
+            const { data: origDevice } = await supabase
+                .from('devices')
+                .select('app_id')
+                .eq('device_id', existingDevice.linked_device_id)
+                .single();
+
+            if (origDevice) {
+                const { data: app } = await supabase
+                    .from('app_builder_apps')
+                    .select('owner_id')
+                    .eq('id', origDevice.app_id)
+                    .single();
+
+                if (!app || String(app.owner_id) !== String(userId)) {
+                    return res.status(403).json({ success: false, error: 'Forbidden: You do not own this cloud phone mapping' });
+                }
+            }
+        }
+    }
 
     const updates: any = {
         updated_at: new Date().toISOString(),
@@ -166,7 +277,7 @@ router.put('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, r
     io.emit('device_change', { eventType: existing ? 'UPDATE' : 'INSERT', new: result });
     io.to(`device-${geelarkPhoneId}`).emit('device_change', { eventType: existing ? 'UPDATE' : 'INSERT', new: result });
 
-    res.json({
+    return res.json({
         success: true,
         device: {
             geelarkPhoneId: result.geelark_phone_id,
@@ -188,14 +299,31 @@ router.put('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, r
  * POST /api/v1/cloud-phones/devices/bulk/auto-forward
  * Bulk toggle auto-forward for multiple devices
  */
-router.post('/bulk/auto-forward', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/bulk/auto-forward', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { phoneIds, enabled } = req.body;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     if (!Array.isArray(phoneIds) || phoneIds.length === 0) {
         return res.status(400).json({
             success: false,
             error: 'phoneIds array is required',
         });
+    }
+
+    // For non-admins, verify that all phoneIds belong to them
+    if (!isAdmin) {
+        const { data: userApps } = await supabase.from('app_builder_apps').select('id').eq('owner_id', userId);
+        const appIds = (userApps || []).map(a => a.id);
+        const { data: userDevices } = await supabase.from('devices').select('device_id').in('app_id', appIds);
+        const deviceIds = (userDevices || []).map(d => d.device_id);
+
+        const { data: targetDevices } = await supabase.from('cloud_phone_devices').select('geelark_phone_id, linked_device_id').in('geelark_phone_id', phoneIds);
+        const allOwned = (targetDevices || []).every(d => d.linked_device_id && deviceIds.includes(d.linked_device_id));
+
+        if (!allOwned || (targetDevices || []).length !== phoneIds.length) {
+            return res.status(403).json({ success: false, error: 'Forbidden: One or more devices do not belong to you' });
+        }
     }
 
     if (typeof enabled !== 'boolean') {
@@ -235,8 +363,24 @@ router.post('/bulk/auto-forward', ...adminOnly, asyncHandler(async (req: Request
  * DELETE /api/v1/cloud-phones/devices/:geelarkPhoneId
  * Delete cloud phone device metadata
  */
-router.delete('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.delete('/:geelarkPhoneId', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { geelarkPhoneId } = req.params;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
+
+    // Verify ownership if not admin
+    if (!isAdmin) {
+        const { data: device } = await supabase.from('cloud_phone_devices').select('linked_device_id').eq('geelark_phone_id', geelarkPhoneId).maybeSingle();
+        if (device?.linked_device_id) {
+            const { data: dbDevice } = await supabase.from('devices').select('app_id').eq('device_id', device.linked_device_id).single();
+            if (dbDevice) {
+                const { data: app } = await supabase.from('app_builder_apps').select('owner_id').eq('id', dbDevice.app_id).single();
+                if (!app || String(app.owner_id) !== String(userId)) {
+                    return res.status(403).json({ success: false, error: 'Forbidden: You do not own this cloud phone' });
+                }
+            }
+        }
+    }
 
     const { error } = await supabase
         .from('cloud_phone_devices')
@@ -251,7 +395,7 @@ router.delete('/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: Request
     io.emit('device_change', { eventType: 'DELETE', old: { geelark_phone_id: geelarkPhoneId } });
     io.to(`device-${geelarkPhoneId}`).emit('device_change', { eventType: 'DELETE', old: { geelark_phone_id: geelarkPhoneId } });
 
-    res.json({
+    return res.json({
         success: true,
         message: 'Device deleted successfully',
     });

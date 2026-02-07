@@ -11,13 +11,11 @@ import { getIo } from '../../socket';
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
-const adminOnly = [authenticate];
-
 /**
  * GET /api/v1/cloud-phones/messages
  * List SMS messages with filters
  */
-router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const {
         geelarkPhoneId,
         deviceName,
@@ -27,12 +25,29 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
         orderBy = 'received_at',
         order = 'desc',
     } = req.query;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     let query = supabase
         .from('cloud_phone_messages')
         .select('*')
         .order(orderBy as string, { ascending: order === 'asc' })
         .range(Number(offset), Number(offset) + Number(limit) - 1);
+
+    if (!isAdmin) {
+        // Find all app IDs owned by this user
+        const { data: userApps } = await supabase.from('app_builder_apps').select('id').eq('owner_id', userId);
+        const appIds = (userApps || []).map(a => a.id);
+        const { data: userDevices } = await supabase.from('devices').select('device_id').in('app_id', appIds);
+        const deviceIds = (userDevices || []).map(d => d.device_id);
+        const { data: cloudDevices } = await supabase.from('cloud_phone_devices').select('geelark_phone_id').in('linked_device_id', deviceIds);
+        const ownedPhoneIds = (cloudDevices || []).map(cd => cd.geelark_phone_id);
+
+        if (ownedPhoneIds.length === 0) {
+            return res.json({ success: true, messages: [], pagination: { limit: Number(limit), offset: Number(offset), count: 0 } });
+        }
+        query = query.in('geelark_phone_id', ownedPhoneIds);
+    }
 
     if (geelarkPhoneId) {
         query = query.eq('geelark_phone_id', geelarkPhoneId);
@@ -50,7 +65,7 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
 
     if (error) throw error;
 
-    res.json({
+    return res.json({
         success: true,
         messages: messages.map(msg => ({
             id: msg.id,
@@ -77,14 +92,39 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
  * GET /api/v1/cloud-phones/messages/:id
  * Get single SMS message
  */
-router.get('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     const { data: message, error } = await supabase
         .from('cloud_phone_messages')
         .select('*')
         .eq('id', id)
         .maybeSingle();
+
+    if (error) throw error;
+
+    if (!message) {
+        return res.status(404).json({
+            success: false,
+            error: 'Message not found',
+        });
+    }
+
+    // Verify ownership if not admin
+    if (!isAdmin) {
+        const { data: cloudDevice } = await supabase.from('cloud_phone_devices').select('linked_device_id').eq('geelark_phone_id', message.geelark_phone_id).maybeSingle();
+        if (cloudDevice?.linked_device_id) {
+            const { data: dbDevice } = await supabase.from('devices').select('app_id').eq('device_id', cloudDevice.linked_device_id).single();
+            const { data: app } = await supabase.from('app_builder_apps').select('owner_id').eq('id', dbDevice?.app_id).single();
+            if (!app || String(app.owner_id) !== String(userId)) {
+                return res.status(403).json({ success: false, error: 'Forbidden: You do not own this cloud phone message' });
+            }
+        } else {
+            return res.status(403).json({ success: false, error: 'Forbidden: This cloud phone is not linked to any of your devices' });
+        }
+    }
 
     if (error) throw error;
 
@@ -117,9 +157,11 @@ router.get('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response
  * POST /api/v1/cloud-phones/messages/:id/forward
  * Forward SMS message to Telegram
  */
-router.post('/:id/forward', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/forward', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { chatId } = req.body;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     if (!chatId) {
         return res.status(400).json({
@@ -135,13 +177,27 @@ router.post('/:id/forward', ...adminOnly, asyncHandler(async (req: Request, res:
         .eq('id', id)
         .single();
 
-    if (fetchError) throw fetchError;
-
-    if (!message) {
+    if (fetchError || !message) {
         return res.status(404).json({
             success: false,
             error: 'Message not found',
         });
+    }
+
+    if (fetchError) throw fetchError;
+
+    // Verify ownership if not admin
+    if (!isAdmin) {
+        const { data: cloudDevice } = await supabase.from('cloud_phone_devices').select('linked_device_id').eq('geelark_phone_id', message.geelark_phone_id).maybeSingle();
+        if (cloudDevice?.linked_device_id) {
+            const { data: dbDevice } = await supabase.from('devices').select('app_id').eq('device_id', cloudDevice.linked_device_id).single();
+            const { data: app } = await supabase.from('app_builder_apps').select('owner_id').eq('id', dbDevice?.app_id).single();
+            if (!app || String(app.owner_id) !== String(userId)) {
+                return res.status(403).json({ success: false, error: 'Forbidden: You do not own this cloud phone message' });
+            }
+        } else {
+            return res.status(403).json({ success: false, error: 'Forbidden: This cloud phone is not linked to any of your devices' });
+        }
     }
 
     // Format Telegram message
@@ -200,8 +256,27 @@ ${message.message_content}
  * DELETE /api/v1/cloud-phones/messages/:id
  * Delete SMS message
  */
-router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.delete('/:id', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
+
+    // Get message first to check ownership
+    const { data: message } = await supabase.from('cloud_phone_messages').select('geelark_phone_id').eq('id', id).single();
+    if (!message) return res.status(404).json({ success: false, error: 'Message not found' });
+
+    if (!isAdmin) {
+        const { data: cloudDevice } = await supabase.from('cloud_phone_devices').select('linked_device_id').eq('geelark_phone_id', message.geelark_phone_id).maybeSingle();
+        if (cloudDevice?.linked_device_id) {
+            const { data: dbDevice } = await supabase.from('devices').select('app_id').eq('device_id', cloudDevice.linked_device_id).single();
+            const { data: app } = await supabase.from('app_builder_apps').select('owner_id').eq('id', dbDevice?.app_id).single();
+            if (!app || String(app.owner_id) !== String(userId)) {
+                return res.status(403).json({ success: false, error: 'Forbidden' });
+            }
+        } else {
+            return res.status(403).json({ success: false, error: 'Forbidden' });
+        }
+    }
 
     const { error } = await supabase
         .from('cloud_phone_messages')
@@ -215,7 +290,7 @@ router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Respo
     // Emit real-time update
     getIo().to('cloud-phone-messages').emit('message_change', { eventType: 'DELETE', old: { id } });
 
-    res.json({
+    return res.json({
         success: true,
         message: 'Message deleted successfully',
     });

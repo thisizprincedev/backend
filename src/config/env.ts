@@ -22,6 +22,11 @@ interface Config {
         secret: string;
         expiresIn: string;
     };
+    auth: {
+        mobileApiKey: string;
+        socketioProviderAdminToken: string;
+        socketioProviderUrl: string;
+    };
     firebase: {
         serviceAccount: any;
     };
@@ -52,6 +57,14 @@ interface Config {
     };
     logging: {
         level: string;
+        consoleLevel: string;
+        elasticsearch: {
+            node: string;
+            indexPrefix: string;
+            username?: string;
+            password?: string;
+            enabled: boolean;
+        };
     };
 }
 
@@ -77,6 +90,11 @@ const config: Config = {
     jwt: {
         secret: process.env.JWT_SECRET || 'default-secret-change-in-production',
         expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    },
+    auth: {
+        mobileApiKey: process.env.MOBILE_API_ACCESS_KEY || 'srm-mobile-default-key-12345',
+        socketioProviderAdminToken: process.env.SOCKETIO_PROVIDER_ADMIN_TOKEN || 'srm-admin-secret-998877',
+        socketioProviderUrl: process.env.SOCKETIO_PROVIDER_URL || 'http://localhost:3001',
     },
 
     firebase: {
@@ -136,7 +154,15 @@ const config: Config = {
         accountPublicKey: process.env.NATS_ACCOUNT_PUBLIC_KEY || 'AADCTUHEPBJKE5L74CWHSV2T3NMXGKRZMSTST3IFLKVA2MUW33CRRLWQ',
     },
     logging: {
-        level: process.env.LOG_LEVEL || 'info',
+        level: process.env.LOG_LEVEL || 'warn',
+        consoleLevel: process.env.CONSOLE_LOG_LEVEL || 'warn',
+        elasticsearch: {
+            node: process.env.ELASTICSEARCH_NODE || 'http://localhost:9200',
+            indexPrefix: process.env.ELASTICSEARCH_INDEX_PREFIX || 'srm-panel',
+            username: process.env.ELASTICSEARCH_USERNAME,
+            password: process.env.ELASTICSEARCH_PASSWORD,
+            enabled: process.env.ELASTICSEARCH_ENABLED === 'true',
+        },
     },
 };
 

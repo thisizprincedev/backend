@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { geelarkService } from '../../services/geelark.service';
-import { authenticate, requireRole } from '../../middleware/auth';
+import { authenticate } from '../../middleware/auth';
 import webhookRoutes from './webhooks';
 import profilesRoutes from './profiles';
 import { cloudPhoneManager } from '../../services/cloudPhoneManager';
@@ -10,15 +10,15 @@ const router = Router();
 
 // Mount sub-routes
 router.use('/webhooks', webhookRoutes);
-router.use('/profiles', authenticate, requireRole(['admin']), profilesRoutes);
+router.use('/profiles', authenticate, profilesRoutes);
 
-const adminOnly = [authenticate, requireRole(['admin'])];
+const authenticatedOnly = [authenticate];
 
 /**
  * GET /api/v1/cloud-phones
  * List cloud phones
  */
-router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { apiKey, page, pageSize, ids, serialName, remark, groupName, tags, chargeMode, openStatus } = req.query;
 
     if (!apiKey) {
@@ -46,7 +46,7 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
  * POST /api/v1/cloud-phones
  * Create cloud phone
  */
-router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { apiKey, ...params } = req.body;
 
     if (!apiKey) {
@@ -61,7 +61,7 @@ router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) 
  * DELETE /api/v1/cloud-phones/:id
  * Delete cloud phone
  */
-router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.delete('/:id', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey } = req.body;
 
@@ -77,7 +77,7 @@ router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Respo
  * POST /api/v1/cloud-phones/:id/start
  * Start cloud phone
  */
-router.post('/:id/start', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/start', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey } = req.body;
 
@@ -93,7 +93,7 @@ router.post('/:id/start', ...adminOnly, asyncHandler(async (req: Request, res: R
  * POST /api/v1/cloud-phones/:id/control
  * Control cloud phone (restart, stop, etc.)
  */
-router.post('/:id/control', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/control', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey, action } = req.body;
 
@@ -109,7 +109,7 @@ router.post('/:id/control', ...adminOnly, asyncHandler(async (req: Request, res:
  * POST /api/v1/cloud-phones/:id/send-sms
  * Send SMS from cloud phone
  */
-router.post('/:id/send-sms', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/send-sms', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey, phoneNumber, text } = req.body;
 
@@ -129,7 +129,7 @@ router.post('/:id/send-sms', ...adminOnly, asyncHandler(async (req: Request, res
  * GET /api/v1/cloud-phones/:id/status
  * Get cloud phone status
  */
-router.get('/:id/status', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id/status', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey } = req.query;
 
@@ -145,7 +145,7 @@ router.get('/:id/status', ...adminOnly, asyncHandler(async (req: Request, res: R
  * POST /api/v1/cloud-phones/:id/screenshot
  * Take screenshot
  */
-router.post('/:id/screenshot', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/screenshot', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey, action, taskId } = req.body;
 
@@ -161,7 +161,7 @@ router.post('/:id/screenshot', ...adminOnly, asyncHandler(async (req: Request, r
  * GET /api/v1/cloud-phones/:id/apps
  * Get installed apps
  */
-router.get('/:id/apps', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id/apps', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey } = req.query;
 
@@ -177,7 +177,7 @@ router.get('/:id/apps', ...adminOnly, asyncHandler(async (req: Request, res: Res
  * POST /api/v1/cloud-phones/:id/apps/download
  * Download app to phone
  */
-router.post('/:id/apps/download', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/apps/download', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey, appUrl } = req.body;
 
@@ -193,7 +193,7 @@ router.post('/:id/apps/download', ...adminOnly, asyncHandler(async (req: Request
  * POST /api/v1/cloud-phones/:id/google-login
  * Google login automation
  */
-router.post('/:id/google-login', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/google-login', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey, email, password } = req.body;
 
@@ -209,7 +209,7 @@ router.post('/:id/google-login', ...adminOnly, asyncHandler(async (req: Request,
  * PATCH /api/v1/cloud-phones/:id
  * Update phone settings
  */
-router.patch('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.patch('/:id', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { apiKey, ...settings } = req.body;
 
@@ -225,7 +225,7 @@ router.patch('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Respon
  * GET /api/v1/cloud-phones/brands
  * List phone brands
  */
-router.get('/brands', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/brands', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { apiKey } = req.query;
 
     if (!apiKey) {
@@ -240,7 +240,7 @@ router.get('/brands', ...adminOnly, asyncHandler(async (req: Request, res: Respo
  * GET /api/v1/cloud-phones/groups
  * List phone groups
  */
-router.get('/groups', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/groups', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { apiKey } = req.query;
 
     if (!apiKey) {
@@ -255,7 +255,7 @@ router.get('/groups', ...adminOnly, asyncHandler(async (req: Request, res: Respo
  * GET /api/v1/cloud-phones/tasks
  * List async tasks
  */
-router.get('/tasks', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/tasks', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { apiKey, ...params } = req.query;
 
     if (!apiKey) {

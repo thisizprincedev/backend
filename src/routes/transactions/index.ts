@@ -8,19 +8,44 @@ import logger from '../../utils/logger';
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
+const isValidUuid = (uuid: any): boolean => {
+    return typeof uuid === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid);
+};
+
 /**
  * GET /api/v1/transactions/analysis
  * List transaction analysis history
  */
 router.get('/analysis', authenticate, asyncHandler(async (req: Request, res: Response) => {
-    const userId = req.user!.id;
+    const userUuid = req.user!.uuid;
+    if (!userUuid) {
+        return res.status(400).json({ success: false, error: 'User UUID not resolved' });
+    }
     const { databaseId, limit = 50, offset = 0 } = req.query;
 
     let query = supabase
         .from('transaction_analysis')
-        .select('*')
-        .eq('created_by', userId)
-        .order('created_at', { ascending: false })
+        .select('*');
+
+    // Only apply user filter if we have a valid UUID, otherwise PostgreSQL will crash
+    if (userUuid && isValidUuid(userUuid)) {
+        query = query.eq('created_by', userUuid);
+    } else {
+        // If not a valid UUID, this user shouldn't have any records in this table
+        // We could either return empty or filter by something impossible.
+        // Returning empty list is safer if this is a per-user route.
+        return res.json({
+            success: true,
+            analyses: [],
+            pagination: {
+                limit: Number(limit),
+                offset: Number(offset),
+                count: 0,
+            },
+        });
+    }
+
+    query = query.order('created_at', { ascending: false })
         .range(Number(offset), Number(offset) + Number(limit) - 1);
 
     if (databaseId) {
@@ -60,13 +85,23 @@ router.get('/analysis', authenticate, asyncHandler(async (req: Request, res: Res
  */
 router.get('/analysis/:id', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const userId = req.user!.id;
+    const userUuid = req.user!.uuid;
+    if (!userUuid) {
+        return res.status(400).json({ success: false, error: 'User UUID not resolved' });
+    }
+
+    if (!isValidUuid(userUuid)) {
+        return res.status(404).json({
+            success: false,
+            error: 'Analysis not found or access denied',
+        });
+    }
 
     const { data: analysis, error } = await supabase
         .from('transaction_analysis')
         .select('*')
         .eq('id', id)
-        .eq('created_by', userId)
+        .eq('created_by', userUuid)
         .maybeSingle();
 
     if (error) throw error;
@@ -120,12 +155,17 @@ router.post('/analysis', authenticate, asyncHandler(async (req: Request, res: Re
         });
     }
 
+    const userUuid = req.user!.uuid;
+    if (!userUuid) {
+        return res.status(400).json({ success: false, error: 'User UUID not resolved' });
+    }
+
     const { data: analysis, error } = await supabase
         .from('transaction_analysis')
         .insert({
             analysis_date: analysisDate,
             database_id: databaseId || null,
-            created_by: userId,
+            created_by: userUuid,
             transactions,
             total_credit: totalCredit || 0,
             total_debit: totalDebit || 0,
@@ -164,7 +204,10 @@ router.post('/analysis', authenticate, asyncHandler(async (req: Request, res: Re
  */
 router.delete('/analysis/old/:days', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { days } = req.params;
-    const userId = req.user!.id;
+    const userUuid = req.user!.uuid;
+    if (!userUuid) {
+        return res.status(400).json({ success: false, error: 'User UUID not resolved' });
+    }
     const { databaseId } = req.query;
 
     const daysNum = parseInt(Array.isArray(days) ? days[0] : days, 10);
@@ -181,7 +224,7 @@ router.delete('/analysis/old/:days', authenticate, asyncHandler(async (req: Requ
     let query = supabase
         .from('transaction_analysis')
         .delete()
-        .eq('created_by', userId)
+        .eq('created_by', userUuid)
         .lt('created_at', cutoffDate.toISOString());
 
     if (databaseId) {
@@ -192,7 +235,7 @@ router.delete('/analysis/old/:days', authenticate, asyncHandler(async (req: Requ
 
     if (error) throw error;
 
-    logger.info(`Deleted ${count || 0} old transaction analyses (older than ${daysNum} days) for user ${userId}`);
+    logger.info(`Deleted ${count || 0} old transaction analyses (older than ${daysNum} days) for user ${userUuid}`);
 
     return res.json({
         success: true,
@@ -206,13 +249,16 @@ router.delete('/analysis/old/:days', authenticate, asyncHandler(async (req: Requ
  * Clear all transaction analysis records for user
  */
 router.delete('/analysis/all', authenticate, asyncHandler(async (req: Request, res: Response) => {
-    const userId = req.user!.id;
+    const userUuid = req.user!.uuid;
+    if (!userUuid) {
+        return res.status(400).json({ success: false, error: 'User UUID not resolved' });
+    }
     const { databaseId } = req.query;
 
     let query = supabase
         .from('transaction_analysis')
         .delete()
-        .eq('created_by', userId);
+        .eq('created_by', userUuid);
 
     if (databaseId) {
         query = query.eq('database_id', databaseId);
@@ -222,7 +268,7 @@ router.delete('/analysis/all', authenticate, asyncHandler(async (req: Request, r
 
     if (error) throw error;
 
-    logger.info(`Deleted all ${count || 0} transaction analyses for user ${userId}`);
+    logger.info(`Deleted all ${count || 0} transaction analyses for user ${userUuid}`);
 
     return res.json({
         success: true,

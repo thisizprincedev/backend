@@ -8,7 +8,7 @@ const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKe
  * Log a user action to the database
  */
 export const logActivity = async (params: {
-    userId: string | number;
+    userId: string; // Expecting UUID (supabase_user_id)
     action: string;
     details?: any;
     ip?: string;
@@ -18,7 +18,7 @@ export const logActivity = async (params: {
         const { error } = await supabase
             .from('user_action_logs')
             .insert({
-                user_id: params.userId.toString(),
+                user_id: params.userId,
                 action: params.action,
                 details: params.details || {},
                 ip_address: params.ip,

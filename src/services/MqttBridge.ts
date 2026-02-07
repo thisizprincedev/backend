@@ -1,6 +1,6 @@
 import mqtt from 'mqtt';
 import config from '../config/env';
-import logger from '../utils/logger';
+import sysLogger from '../utils/logger';
 import { presenceService } from './PresenceService';
 import { getIo } from '../socket';
 
@@ -9,12 +9,12 @@ export class MqttBridge {
 
     init() {
         if (this.client) {
-            logger.warn('[MqttBridge] Bridge already initialized.');
+            sysLogger.warn('[MqttBridge] Bridge already initialized.');
             return;
         }
 
-        console.log(`📡 [MqttBridge] Initializing bridge for ${config.mqtt.url}`);
-        logger.info(`[MqttBridge] Connecting to MQTT Broker: ${config.mqtt.url}`);
+        sysLogger.debug(`📡 [MqttBridge] Initializing bridge for ${config.mqtt.url}`);
+        sysLogger.info(`[MqttBridge] Connecting to MQTT Broker: ${config.mqtt.url}`);
 
         const username = config.mqtt.username || config.nats.user;
 
@@ -29,41 +29,40 @@ export class MqttBridge {
             protocolVersion: 4,
         });
 
-        logger.info({
+        sysLogger.info({
             url: config.mqtt.url,
             clientId: this.client.options.clientId,
             username: username
         }, '[MqttBridge] Attempting MQTT connection...');
 
         this.client.on('connect', () => {
-            logger.info('[MqttBridge] Connected to MQTT Broker 🚀');
+            sysLogger.info('[MqttBridge] Connected to MQTT Broker 🚀');
             // Try broad subscription for debugging
             this.client?.subscribe('devices/#', (err) => {
-                if (err) logger.error(err, '[MqttBridge] Subscribe Error');
-                else logger.info('[MqttBridge] Subscribed to devices/#');
+                if (err) sysLogger.error(err, '[MqttBridge] Subscribe Error');
+                else sysLogger.info('[MqttBridge] Subscribed to devices/#');
             });
         });
 
         this.client.on('message', (topic, message) => {
-            console.log(`[DEBUG] MQTT RECV -> Topic: ${topic}, Payload: ${message.toString()}`);
-            logger.info(`[MqttBridge] 📥 Received: ${topic}`);
+            sysLogger.debug(`[MqttBridge] 📥 Received: ${topic}`);
             this.handleMessage(topic, message.toString());
         });
 
         this.client.on('error', (err) => {
-            logger.error(err, '[MqttBridge] MQTT Error');
+            sysLogger.error(err, '[MqttBridge] MQTT Error');
         });
 
         this.client.on('reconnect', () => {
-            logger.warn('[MqttBridge] MQTT Reconnecting...');
+            sysLogger.warn('[MqttBridge] MQTT Reconnecting...');
         });
 
         this.client.on('offline', () => {
-            logger.warn('[MqttBridge] MQTT Client Offline');
+            sysLogger.warn('[MqttBridge] MQTT Client Offline');
         });
 
         this.client.on('close', () => {
-            logger.info('[MqttBridge] MQTT Connection Closed');
+            sysLogger.info('[MqttBridge] MQTT Connection Closed');
         });
     }
 
@@ -93,7 +92,7 @@ export class MqttBridge {
     private async handleStatusChange(deviceId: string, status: string) {
         const isOnline = status === 'online';
         const icon = isOnline ? '🟢' : '🔴';
-        logger.info(`[MqttBridge] ${icon} Device ${status.toUpperCase()}: ${deviceId}`);
+        sysLogger.debug(`[MqttBridge] ${icon} Device ${status.toUpperCase()}: ${deviceId}`);
 
         // 1. Update Redis Presence (Instant source of truth)
         if (isOnline) {
@@ -102,45 +101,54 @@ export class MqttBridge {
             await presenceService.markOffline(deviceId);
         }
 
-        // 2. Throttled SQL Persistence (Update DB only every 5 mins or on status change)
-        // For simplicity in this step, we update status immediately but we'll flag telemetry for throttling
-        const { realtimeRegistry } = require('./realtimeRegistry');
-        const isHighScale = realtimeRegistry.getSystemConfig()?.highScaleMode;
+        // 2. Persist to DB and get appId
+        let appId: string | null = null;
+        try {
+            const { createClient } = require('@supabase/supabase-js');
+            const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
-        if (!isHighScale || !isOnline) {
-            // In high scale mode, we still want to know if they go offline immediately in DB
-            // but we can be more lenient with 'online' pulses
-            try {
-                const { createClient } = require('@supabase/supabase-js');
-                const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-                await supabase.from('devices').update({
+            // We update and select back to get the app_id
+            const { data: result } = await supabase
+                .from('devices')
+                .update({
                     status: isOnline,
                     last_seen: new Date().toISOString()
-                }).eq('device_id', deviceId);
-            } catch (err) {
-                logger.error(`[MqttBridge] DB Status update failed for ${deviceId}`);
-            }
+                })
+                .eq('device_id', deviceId)
+                .select('app_id')
+                .maybeSingle();
+
+            appId = result?.app_id;
+        } catch (err) {
+            sysLogger.error(`[MqttBridge] DB Status update failed for ${deviceId}`);
         }
 
-        // 3. Notify via Scoped Socket.IO (No global broadcast in high-scale)
+        // 3. Notify via Scoped Socket.IO
         try {
             const io = getIo();
             const payload = {
                 eventType: 'UPDATE',
-                new: { device_id: deviceId, status: isOnline, last_seen: new Date().toISOString() }
+                new: { device_id: deviceId, status: isOnline, last_seen: new Date().toISOString(), app_id: appId }
             };
+
+            const { realtimeRegistry } = require('./realtimeRegistry');
+            const isHighScale = realtimeRegistry.getSystemConfig()?.highScaleMode;
 
             if (!isHighScale) {
                 io.emit('device_change', payload);
             }
-            // Always emit to specific device room and the 'admin' channel
+
+            // Always emit to specific device room, the 'admin' channel, and the app-specific room
             io.to(`device-${deviceId}`).emit('device_change', payload);
             io.to('admin-dashboard').emit('device_change', payload);
+            if (appId) {
+                io.to(`app-${appId}`).emit('device_change', payload);
+            }
         } catch (err) { }
     }
 
     private async handleNewSms(deviceId: string, payload: string) {
-        logger.info(`[MqttBridge] New SMS via MQTT for device: ${deviceId}`);
+        sysLogger.debug(`[MqttBridge] New SMS via MQTT for device: ${deviceId}`);
 
         try {
             const smsData = JSON.parse(payload);
@@ -159,35 +167,43 @@ export class MqttBridge {
             io.to(`messages-${deviceId}`).emit('message_change', socketPayload);
             io.to('admin-messages').emit('message_change', socketPayload);
         } catch (err) {
-            logger.error(err, `[MqttBridge] Failed to parse/relay SMS for ${deviceId}`);
+            sysLogger.error(err, `[MqttBridge] Failed to parse/relay SMS for ${deviceId}`);
         }
     }
 
     private async handleTelemetry(deviceId: string, payload: string) {
         try {
             const data = JSON.parse(payload);
-            logger.info(`[MqttBridge] 💓 Heartbeat (Telemetry) from: ${deviceId}`);
+            sysLogger.debug(`[MqttBridge] 💓 Heartbeat (Telemetry) from: ${deviceId}`);
 
             await presenceService.markOnline(deviceId);
 
             const { realtimeRegistry } = require('./realtimeRegistry');
             const isHighScale = realtimeRegistry.getSystemConfig()?.highScaleMode;
 
+            let appId: string | null = null;
+
             // ⚡ THROTTLED DB UPDATE: Skip SQL if in high-scale mode to save IOPS
-            // Redis is already updated via markOnline
             if (!isHighScale) {
                 const { createClient } = require('@supabase/supabase-js');
                 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-                await supabase.from('devices').update({
-                    heartbeat: data,
-                    last_seen: new Date().toISOString()
-                }).eq('device_id', deviceId);
+                const { data: device } = await supabase
+                    .from('devices')
+                    .update({
+                        heartbeat: data,
+                        last_seen: new Date().toISOString()
+                    })
+                    .eq('device_id', deviceId)
+                    .select('app_id')
+                    .maybeSingle();
+
+                appId = device?.app_id;
             }
 
             const io = getIo();
             const socketPayload = {
                 eventType: 'UPDATE',
-                new: { ...data, device_id: deviceId, last_seen: new Date().toISOString() }
+                new: { ...data, device_id: deviceId, last_seen: new Date().toISOString(), app_id: appId }
             };
 
             if (!isHighScale) {
@@ -195,8 +211,11 @@ export class MqttBridge {
             }
             io.to(`device-${deviceId}`).emit('device_change', socketPayload);
             io.to('admin-dashboard').emit('device_change', socketPayload);
+            if (appId) {
+                io.to(`app-${appId}`).emit('device_change', socketPayload);
+            }
         } catch (err) {
-            logger.error(err, `[MqttBridge] Failed to process telemetry for ${deviceId}`);
+            sysLogger.error(err, `[MqttBridge] Failed to process telemetry for ${deviceId}`);
         }
     }
 
@@ -204,7 +223,7 @@ export class MqttBridge {
         if (this.client) {
             this.client.end(true);
             this.client = null;
-            logger.info('[MqttBridge] Bridge shut down.');
+            sysLogger.info('[MqttBridge] Bridge shut down.');
         }
     }
 }

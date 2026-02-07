@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import config from '../../config/env';
-import { authenticate, requireRole } from '../../middleware/auth';
+import { authenticate } from '../../middleware/auth';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { io } from '../../index';
 import { ProviderFactory } from '../../providers/factory';
@@ -11,18 +11,56 @@ import { realtimeRegistry } from '../../services/realtimeRegistry';
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
-const adminOnly = [authenticate, requireRole(['admin'])];
-
 /**
  * GET /api/v1/devices
  * List all devices with optional filtering
  */
-router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { status, limit = 100 } = req.query;
     const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
+
+    // If not admin, we must ensure the requested appId belongs to the user,
+    // or if no appId is requested, we fetch devices for all apps owned by the user.
+    let targetAppIds: string[] = [];
+    if (appId) {
+        if (!isAdmin) {
+            const { data: appOwner } = await supabase
+                .from('app_builder_apps')
+                .select('owner_id')
+                .eq('id', appId)
+                .single();
+            if (!appOwner || appOwner.owner_id !== userId) {
+                return res.status(403).json({ success: false, error: 'Forbidden: App not owned by you' });
+            }
+        }
+        targetAppIds = [appId];
+    } else if (!isAdmin) {
+        // Fetch all app IDs owned by this user
+        const { data: userApps } = await supabase
+            .from('app_builder_apps')
+            .select('id')
+            .eq('owner_id', userId);
+        targetAppIds = (userApps || []).map(a => a.id);
+
+        if (targetAppIds.length === 0) {
+            return res.json({ success: true, devices: [], message: 'No apps found for user' });
+        }
+    }
+
+    // If targetAppIds is empty and we are admin, we fetch all (appId is undefined)
+    // If not empty, we might need a modified provider logic to fetch from multiple apps,
+    // but for now let's assume one appId or all from the default provider.
 
     const provider = await ProviderFactory.getProvider(appId);
     let devices = await provider.listDevices(Number(limit));
+
+    // If we have multiple apps but used a single provider (NullProvider or Supabase),
+    // we should filter the devices here.
+    if (targetAppIds.length > 0 && !appId) {
+        devices = devices.filter(d => targetAppIds.includes(d.app_id));
+    }
 
     // Merge status from Redis (PresenceService)
     const deviceIds = devices.map(d => d.device_id || d.id);
@@ -55,11 +93,23 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
  * GET /api/v1/devices/:deviceId
  * Get single device details
  */
-router.get('/:deviceId', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:deviceId', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const deviceId = String(req.params.deviceId);
     const queryAppId = req.query.appId;
     const appId = typeof queryAppId === 'string' ? queryAppId : undefined;
-    const provider = await ProviderFactory.getProvider(appId);
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
+
+    let provider;
+    if (isAdmin) {
+        provider = await ProviderFactory.getProvider(appId);
+    } else {
+        provider = await ProviderFactory.getProviderForUser(deviceId, userId, appId);
+        if (!provider) {
+            return res.status(403).json({ success: false, error: 'Forbidden: You do not own this device' });
+        }
+    }
+
     let device = await provider.getDevice(deviceId);
 
     if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
@@ -75,11 +125,23 @@ router.get('/:deviceId', ...adminOnly, asyncHandler(async (req: Request, res: Re
  * GET /api/v1/devices/:deviceId/stats
  * Get counts for messages, apps, etc.
  */
-router.get('/:deviceId/stats', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:deviceId/stats', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const deviceId = String(req.params.deviceId);
     const queryAppId = req.query.appId;
     const appId = typeof queryAppId === 'string' ? queryAppId : undefined;
-    const provider = await ProviderFactory.getProvider(appId);
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
+
+    let provider;
+    if (isAdmin) {
+        provider = await ProviderFactory.getProvider(appId);
+    } else {
+        provider = await ProviderFactory.getProviderForUser(deviceId, userId, appId);
+        if (!provider) {
+            return res.status(403).json({ success: false, error: 'Forbidden: You do not own this device' });
+        }
+    }
+
     const stats = await provider.getDeviceStats(deviceId);
 
     return res.json({ success: true, stats });
@@ -89,9 +151,19 @@ router.get('/:deviceId/stats', ...adminOnly, asyncHandler(async (req: Request, r
  * PATCH /api/v1/devices/:deviceId
  * Update device details (note, is_bookmarked)
  */
-router.patch('/:deviceId', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
-    const { deviceId } = req.params;
-    const { note, is_bookmarked } = req.body;
+router.patch('/:deviceId', authenticate, asyncHandler(async (req: Request, res: Response) => {
+    const deviceId = req.params.deviceId as string;
+    const { note, is_bookmarked, appId: bodyAppId } = req.body;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
+
+    // Verify ownership if not admin
+    if (!isAdmin) {
+        const provider = await ProviderFactory.getProviderForUser(deviceId, userId, bodyAppId as string | undefined);
+        if (!provider) {
+            return res.status(403).json({ success: false, error: 'Forbidden: You do not own this device' });
+        }
+    }
 
     const updates: any = { updated_at: new Date().toISOString() };
     if (note !== undefined) updates.note = note;
@@ -126,11 +198,15 @@ router.patch('/:deviceId', ...adminOnly, asyncHandler(async (req: Request, res: 
     }
 
     // Emit real-time update
+    const socketPayload = { eventType: 'UPDATE', new: { ...data, app_id: appId || data.app_id } };
     if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-        io.emit('device_change', { eventType: 'UPDATE', new: data });
+        io.emit('device_change', socketPayload);
     }
-    io.to(`device-${deviceId}`).emit('device_change', { eventType: 'UPDATE', new: data });
-    io.to('admin-dashboard').emit('device_change', { eventType: 'UPDATE', new: data });
+    io.to(`device-${deviceId}`).emit('device_change', socketPayload);
+    io.to('admin-dashboard').emit('device_change', socketPayload);
+    if (appId || data.app_id) {
+        io.to(`app-${appId || data.app_id}`).emit('device_change', socketPayload);
+    }
 
     return res.json({ success: true, device: data });
 }));
@@ -141,15 +217,24 @@ router.patch('/:deviceId', ...adminOnly, asyncHandler(async (req: Request, res: 
  */
 router.post('/:deviceId/send-sms', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const deviceId = String(req.params.deviceId);
-    const { phoneNumber, message, simIndex = 0 } = req.body;
+    const { phoneNumber, message, simIndex = 0, appId: bodyAppId } = req.body;
+    const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     if (!phoneNumber || !message) {
         return res.status(400).json({ success: false, error: 'phoneNumber and message are required' });
     }
 
-    const bodyAppId = req.body.appId;
-    const appId = typeof bodyAppId === 'string' ? bodyAppId : undefined;
-    const provider = await ProviderFactory.getProvider(appId);
+    let provider;
+    if (isAdmin) {
+        provider = await ProviderFactory.getProvider(bodyAppId);
+    } else {
+        provider = await ProviderFactory.getProviderForUser(deviceId, userId, bodyAppId as string | undefined);
+        if (!provider) {
+            return res.status(403).json({ success: false, error: 'Forbidden: You do not own this device' });
+        }
+    }
+
     const cmd = await provider.sendCommand(deviceId, 'send_sms', {
         phone_number: phoneNumber,
         message: message,

@@ -4,7 +4,6 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import config from './config/env';
 import logger from './utils/logger';
 import redis from './lib/redis';
-import { logRelay, LOG_EVENT } from './utils/logRelay';
 import jwt from 'jsonwebtoken';
 import { createClient } from '@supabase/supabase-js';
 
@@ -62,13 +61,6 @@ export const initSocket = (httpServer: HttpServer): SocketIOServer => {
         }
     });
 
-    // Listen to log relay and broadcast to admin_logs room
-    logRelay.on(LOG_EVENT, (log) => {
-        if (io) {
-            io.to('admin_logs').emit(LOG_EVENT, log);
-        }
-    });
-
     io.on('connection', (socket: Socket) => {
         const user = (socket.request as any).user;
         logger.info(`[Socket] Client connected: ${socket.id} (User: ${user?.email || 'unknown'})`);
@@ -76,15 +68,6 @@ export const initSocket = (httpServer: HttpServer): SocketIOServer => {
         // Join room for specific updates
         socket.on('join', (room: string) => {
             if (!room) return;
-
-            // Security: Only admins can join admin_logs
-            if (room === 'admin_logs') {
-                if (user?.role !== 'admin') {
-                    logger.warn({ socketId: socket.id, userId: user?.id }, 'Non-admin attempted to join admin_logs');
-                    socket.emit('error', { message: 'Unauthorized to join this room' });
-                    return;
-                }
-            }
 
             socket.join(room);
             logger.info(`[Socket] ${socket.id} joined room: "${room}"`);

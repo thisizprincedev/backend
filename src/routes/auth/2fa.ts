@@ -137,6 +137,7 @@ router.post('/verify', asyncHandler(async (req: Request, res: Response) => {
     const token = jwt.sign(
         {
             id: user.id.toString(),
+            uuid: user.supabase_user_id,
             email: user.email,
             role: user.role,
             firebase_uid: user.firebase_uid

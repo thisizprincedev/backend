@@ -10,7 +10,7 @@ import { io } from '../../index';
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
-const adminOnly = [authenticate];
+const authenticatedOnly = [authenticate];
 
 /**
  * Validate version format (v1.0.0)
@@ -34,14 +34,20 @@ function decodeDataUrl(dataUrl: string): Buffer {
  * GET /api/v1/app-builder/apps
  * List all apps
  */
-router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
-    const { data: apps, error } = await supabase
+    let query = supabase
         .from('app_builder_apps')
         .select('*')
-        .eq('owner_id', userId)
         .order('created_at', { ascending: false });
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { data: apps, error } = await query;
 
     if (error) {
         logger.error(error, 'Error fetching apps:');
@@ -62,7 +68,7 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
  * POST /api/v1/app-builder/apps
  * Create new app
  */
-router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.id;
     const {
         appName,
@@ -171,15 +177,21 @@ router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) 
     return res.json({ success: true, appId: appId.toString() });
 }));
 
-router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.delete('/:id', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
-    const { error } = await supabase
+    let query = supabase
         .from('app_builder_apps')
         .delete()
-        .eq('id', id)
-        .eq('owner_id', userId);
+        .eq('id', id);
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { error } = await query;
 
     if (error) {
         logger.error(error, 'Delete error:');
@@ -196,17 +208,22 @@ router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Respo
  * POST /api/v1/app-builder/apps/:id/clone
  * Clone app
  */
-router.post('/:id/clone', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/clone', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     // Get original app
-    const { data: originalApp, error: fetchError } = await supabase
+    let query = supabase
         .from('app_builder_apps')
         .select('*')
-        .eq('id', id)
-        .eq('owner_id', userId)
-        .single();
+        .eq('id', id);
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { data: originalApp, error: fetchError } = await query.single();
 
     if (fetchError || !originalApp) {
         return res.status(404).json({ success: false, error: 'App not found' });
@@ -239,33 +256,43 @@ router.post('/:id/clone', ...adminOnly, asyncHandler(async (req: Request, res: R
  * POST /api/v1/app-builder/apps/:id/build
  * Trigger build
  */
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import prisma from '../../lib/prisma';
 
 // ... existing imports ...
 
 // Helper to trigger build (exported for use in other routes)
-export async function triggerGitHubBuild(appId: string, userId: string) {
-    const prisma = new PrismaClient();
+export async function triggerGitHubBuild(appId: string, userId: string, isAdmin: boolean = false) {
 
-    // Fetch GitHub config using Prisma
-    const settings = await prisma.user_settings.findUnique({
-        where: { user_id: userId },
-        select: { github_workflow_config: true }
+    // Fetch Global GitHub config first (priority)
+    const globalConfig = await prisma.global_config.findUnique({
+        where: { config_key: 'github_workflow_config' }
     });
 
-    const githubConfig = settings?.github_workflow_config as any;
+    let githubConfig = globalConfig?.config_value as any;
 
-    if (!githubConfig || !githubConfig.owner || !githubConfig.repo || !githubConfig.pat) {
-        throw new Error('GitHub configuration missing. Please configure it in settings.');
+    if (!githubConfig) {
+        // Fallback to user-specific config (legacy)
+        const settings = await prisma.user_settings.findUnique({
+            where: { user_id: userId },
+            select: { github_workflow_config: true }
+        });
+        githubConfig = settings?.github_workflow_config as any;
     }
 
-    const { data: app, error: appError } = await supabase
+    if (!githubConfig || !githubConfig.owner || !githubConfig.repo || !githubConfig.pat) {
+        throw new Error('GitHub configuration missing or incomplete. Please contact an administrator.');
+    }
+
+    let query = supabase
         .from('app_builder_apps')
         .select('*')
-        .eq('id', appId)
-        .eq('owner_id', userId)
-        .single();
+        .eq('id', appId);
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { data: app, error: appError } = await query.single();
 
     if (appError || !app) {
         throw new Error('App not found');
@@ -419,15 +446,17 @@ export async function triggerGitHubBuild(appId: string, userId: string) {
  * POST /api/v1/app-builder/apps/:id/build
  * Trigger build
  */
-router.post('/:id/build', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/build', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
 
     // Ensure id is a string
     const appId = Array.isArray(id) ? id[0] : id;
 
+    const isAdmin = req.user!.role === 'admin';
+
     try {
-        await triggerGitHubBuild(appId, userId);
+        await triggerGitHubBuild(appId, userId, isAdmin);
         return res.json({ success: true, message: 'Build triggered successfully' });
     } catch (error: any) {
         logger.error(error, 'Build trigger error:');
@@ -440,15 +469,21 @@ router.post('/:id/build', ...adminOnly, asyncHandler(async (req: Request, res: R
         return res.status(500).json({ success: false, error: errorMessage });
     }
 }));
-router.delete('/:id/build', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.delete('/:id/build', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
-    const { error } = await supabase
+    let query = supabase
         .from('app_builder_apps')
         .update({ build_status: 'cancelled' })
-        .eq('id', id)
-        .eq('owner_id', userId);
+        .eq('id', id);
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { error } = await query;
 
     if (error) {
         logger.error(error, 'Build cancel error:');
@@ -465,17 +500,22 @@ router.delete('/:id/build', ...adminOnly, asyncHandler(async (req: Request, res:
  * GET /api/v1/app-builder/apps/:id/status
  * Get build status
  */
-router.get('/:id/status', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id/status', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     // Fetch App
-    const { data: app, error } = await supabase
+    let query = supabase
         .from('app_builder_apps')
-        .select('id, build_status, github_run_id, build_started_at, build_completed_at, build_error')
-        .eq('id', id)
-        .eq('owner_id', userId)
-        .single();
+        .select('id, build_status, github_run_id, build_started_at, build_completed_at, build_error, owner_id')
+        .eq('id', id);
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { data: app, error } = await query.single();
 
     if (error || !app) {
         return res.status(404).json({ success: false, error: 'App not found' });
@@ -484,9 +524,9 @@ router.get('/:id/status', ...adminOnly, asyncHandler(async (req: Request, res: R
     // If active build, verify with GitHub
     if ((app.build_status === 'building' || app.build_status === 'queued') && app.github_run_id) {
         try {
-            // Fetch GitHub config
+            // Fetch GitHub config for the app OWNER (to ensure correct repo access)
             const settings = await prisma.user_settings.findUnique({
-                where: { user_id: userId },
+                where: { user_id: app.owner_id },
                 select: { github_workflow_config: true }
             });
 
@@ -575,16 +615,22 @@ router.get('/:id/status', ...adminOnly, asyncHandler(async (req: Request, res: R
  * GET /api/v1/app-builder/apps/:id/config
  * Get app config
  */
-router.get('/:id/config', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id/config', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
-    const { data: app, error } = await supabase
+    // Fetch App
+    let query = supabase
         .from('app_builder_apps')
-        .select('encrypted_config')
-        .eq('id', id)
-        .eq('owner_id', userId)
-        .single();
+        .select('*')
+        .eq('id', id);
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { data: app, error } = await query.single();
 
     if (error || !app) {
         return res.status(404).json({ success: false, error: 'App not found' });
@@ -603,9 +649,10 @@ router.get('/:id/config', ...adminOnly, asyncHandler(async (req: Request, res: R
  * PUT /api/v1/app-builder/apps/:id/config
  * Update app config
  */
-router.put('/:id/config', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.put('/:id/config', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
     const { config: newConfig } = req.body;
 
     if (!newConfig) {
@@ -614,11 +661,16 @@ router.put('/:id/config', ...adminOnly, asyncHandler(async (req: Request, res: R
 
     const encryptedConfig = encryptionService.encrypt(newConfig);
 
-    const { error } = await supabase
+    let query = supabase
         .from('app_builder_apps')
         .update({ encrypted_config: encryptedConfig })
-        .eq('id', id)
-        .eq('owner_id', userId);
+        .eq('id', id);
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { error } = await query;
 
     if (error) {
         logger.error(error, 'Config update error:');
@@ -632,17 +684,22 @@ router.put('/:id/config', ...adminOnly, asyncHandler(async (req: Request, res: R
  * GET /api/v1/app-builder/apps/:id/logs
  * Get build logs
  */
-router.get('/:id/logs', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id/logs', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     // Fetch App to get run ID
-    const { data: app, error: appError } = await supabase
+    let query = supabase
         .from('app_builder_apps')
-        .select('github_run_id')
-        .eq('id', id)
-        .eq('owner_id', userId)
-        .single();
+        .select('github_run_id, owner_id')
+        .eq('id', id);
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { data: app, error: appError } = await query.single();
 
     if (appError || !app) {
         return res.status(404).json({ success: false, error: 'App not found' });
@@ -652,9 +709,9 @@ router.get('/:id/logs', ...adminOnly, asyncHandler(async (req: Request, res: Res
         return res.json({ success: true, logs: [] });
     }
 
-    // Fetch GitHub config
+    // Fetch GitHub config for the app OWNER
     const settings = await prisma.user_settings.findUnique({
-        where: { user_id: userId },
+        where: { user_id: app.owner_id },
         select: { github_workflow_config: true }
     });
 
@@ -720,17 +777,22 @@ router.get('/:id/logs', ...adminOnly, asyncHandler(async (req: Request, res: Res
  * GET /api/v1/app-builder/apps/:id/download
  * Download built APK
  */
-router.get('/:id/download', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id/download', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
+    const isAdmin = req.user!.role === 'admin';
 
     // Fetch App with version for fallback release check
-    const { data: app, error } = await supabase
+    let query = supabase
         .from('app_builder_apps')
-        .select('apk_url, build_status, github_run_id, version')
-        .eq('id', id)
-        .eq('owner_id', userId)
-        .single();
+        .select('apk_url, build_status, github_run_id, version, owner_id')
+        .eq('id', id);
+
+    if (!isAdmin) {
+        query = query.eq('owner_id', userId);
+    }
+
+    const { data: app, error } = await query.single();
 
     if (error || !app) {
         return res.status(404).json({ success: false, error: 'App not found' });
@@ -745,7 +807,7 @@ router.get('/:id/download', ...adminOnly, asyncHandler(async (req: Request, res:
     if (app.github_run_id || app.version) {
         try {
             const settings = await prisma.user_settings.findUnique({
-                where: { user_id: userId },
+                where: { user_id: app.owner_id },
                 select: { github_workflow_config: true }
             });
 

@@ -34,7 +34,11 @@ router.post('/telegram', authenticate, asyncHandler(async (req: Request, res: Re
  * Sync user profile
  */
 router.post('/sync', authenticate, asyncHandler(async (req: Request, res: Response) => {
-    const userId = req.user!.id;
+    const userUuid = req.user!.uuid;
+    if (!userUuid) {
+        return res.status(400).json({ success: false, error: 'User UUID not resolved' });
+    }
+
     const { profileData } = req.body;
 
     if (!profileData) {
@@ -44,7 +48,7 @@ router.post('/sync', authenticate, asyncHandler(async (req: Request, res: Respon
     const { error } = await supabase
         .from('user_profiles')
         .upsert({
-            supabase_user_id: userId,
+            supabase_user_id: userUuid,
             ...profileData,
         });
 
@@ -61,7 +65,11 @@ router.post('/sync', authenticate, asyncHandler(async (req: Request, res: Respon
  * Log user action
  */
 router.post('/log', authenticate, asyncHandler(async (req: Request, res: Response) => {
-    const userId = req.user!.id;
+    const userUuid = req.user!.uuid;
+    if (!userUuid) {
+        return res.status(400).json({ success: false, error: 'User UUID not resolved' });
+    }
+
     const { action, details } = req.body;
 
     if (!action) {
@@ -72,7 +80,7 @@ router.post('/log', authenticate, asyncHandler(async (req: Request, res: Respons
         const { error } = await supabase
             .from('user_action_logs')
             .insert({
-                user_id: userId,
+                user_id: userUuid,
                 action: action,
                 details: details,
                 ip_address: req.ip,
@@ -114,7 +122,22 @@ router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Respons
     }
 
     if (userId) {
-        query = query.eq('user_id', String(userId));
+        const idStr = String(userId);
+        if (/^\d+$/.test(idStr)) {
+            // Need to lookup UUID if they passed a numeric ID but column is UUID
+            const { data: profile } = await supabase
+                .from('user_profiles')
+                .select('supabase_user_id')
+                .eq('id', idStr)
+                .single();
+            if (profile?.supabase_user_id) {
+                query = query.eq('user_id', profile.supabase_user_id);
+            } else {
+                query = query.eq('user_id', idStr); // Fallback, will likely fail if UUID expected
+            }
+        } else {
+            query = query.eq('user_id', idStr);
+        }
     }
 
     if (dateFrom) {
@@ -144,8 +167,8 @@ router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Respons
         if (userIds.length > 0) {
             const { data: profiles, error: profileError } = await supabase
                 .from('user_profiles')
-                .select('id, email, display_name, avatar_url')
-                .in('id', userIds);
+                .select('id, email, display_name, avatar_url, supabase_user_id')
+                .in('supabase_user_id', userIds);
 
             if (profileError) {
                 logger.warn(profileError, 'Failed to fetch user profiles for logs:');
@@ -154,7 +177,7 @@ router.get('/logs', authenticate, asyncHandler(async (req: Request, res: Respons
                 // Map profiles for O(1) lookup
                 const profileMap = new Map();
                 profiles?.forEach((p: any) => {
-                    profileMap.set(p.id, p);
+                    profileMap.set(p.supabase_user_id, p);
                 });
 
                 // Merge

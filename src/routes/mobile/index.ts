@@ -10,6 +10,10 @@ import { realtimeRegistry } from '../../services/realtimeRegistry';
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 import jwt from 'jsonwebtoken';
+import { authenticateDevice } from '../../middleware/auth';
+
+// Apply device authentication to all mobile routes
+router.use(authenticateDevice);
 
 /**
  * GET /api/v1/mobile/mqtt-auth/:deviceId
@@ -104,11 +108,15 @@ router.put('/devices/:deviceId', asyncHandler(async (req: Request, res: Response
     }
 
     // Emit Socket.IO event
+    const socketPayload = { eventType: 'UPDATE', new: { ...result, app_id: dbData.build_id } };
     if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-        io.emit('device_change', { eventType: 'UPDATE', new: result });
+        io.emit('device_change', socketPayload);
     }
-    io.to(`device-${deviceId}`).emit('device_change', { eventType: 'UPDATE', new: result });
-    io.to('admin-dashboard').emit('device_change', { eventType: 'UPDATE', new: result });
+    io.to(`device-${deviceId}`).emit('device_change', socketPayload);
+    io.to('admin-dashboard').emit('device_change', socketPayload);
+    if (dbData.build_id) {
+        io.to(`app-${dbData.build_id}`).emit('device_change', socketPayload);
+    }
 
     // Notify activity
     await notificationDispatcher.broadcastDeviceActivity(deviceId as string, `Device updated/reconnected (${dbData.model || 'Unknown'})`);
@@ -169,11 +177,15 @@ router.post('/heartbeats', asyncHandler(async (req: Request, res: Response) => {
         io.to(`heartbeat-${deviceId}`).emit('heartbeat_change', { eventType: 'UPDATE', new: hbResult });
     }
     if (devResult) {
+        const socketPayload = { eventType: 'UPDATE', new: { ...devResult, app_id: devResult.app_id } };
         if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-            io.emit('device_change', { eventType: 'UPDATE', new: devResult });
+            io.emit('device_change', socketPayload);
         }
-        io.to(`device-${deviceId}`).emit('device_change', { eventType: 'UPDATE', new: devResult });
-        io.to('admin-dashboard').emit('device_change', { eventType: 'UPDATE', new: devResult });
+        io.to(`device-${deviceId}`).emit('device_change', socketPayload);
+        io.to('admin-dashboard').emit('device_change', socketPayload);
+        if (devResult.app_id) {
+            io.to(`app-${devResult.app_id}`).emit('device_change', socketPayload);
+        }
     }
 
     return res.json({ success: true, type: 'pong' });
@@ -484,6 +496,79 @@ router.patch('/commands/:commandId/status', asyncHandler(async (req: Request, re
     }
 
     return res.json({ success: true });
+}));
+
+/**
+ * GET /api/v1/mobile/commands
+ * List pending commands for the authenticated device
+ */
+router.get('/commands', asyncHandler(async (req: Request, res: Response) => {
+    const deviceId = req.deviceId;
+
+    if (!deviceId) {
+        return res.status(401).json({ error: 'DeviceId not identified' });
+    }
+
+    const { data: commands, error } = await supabase
+        .from('device_commands')
+        .select('*')
+        .eq('device_id', deviceId)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        logger.error(error, '[Mobile API] List commands error:');
+        return res.status(500).json({ error: 'Failed to list commands' });
+    }
+
+    return res.json({
+        success: true,
+        commands
+    });
+}));
+
+/**
+ * PATCH /api/v1/mobile/commands/:id/status
+ * Update command status/result
+ */
+router.patch('/commands/:id/status', asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { status, result, error: cmdError } = req.body;
+    const deviceId = req.deviceId;
+
+    if (!deviceId) {
+        return res.status(401).json({ error: 'DeviceId not identified' });
+    }
+
+    // Verify ownership and update
+    const { data: command, error } = await supabase
+        .from('device_commands')
+        .update({
+            status,
+            result,
+            error: cmdError,
+            updated_at: new Date().toISOString(),
+            executed_at: status === 'completed' ? new Date().toISOString() : undefined
+        })
+        .eq('id', id)
+        .eq('device_id', deviceId) // Critical: Only update if owned by this device
+        .select()
+        .single();
+
+    if (error) {
+        logger.error(error, '[Mobile API] Update command status error:');
+        return res.status(403).json({ error: 'Failed to update command status (Unauthorized or Not Found)' });
+    }
+
+    // Emit real-time update for dashboard
+    const socketPayload = { eventType: 'UPDATE', new: command };
+    io.to(`commands-${deviceId}`).emit('command_change', socketPayload);
+    io.to('admin-dashboard').emit('command_change', socketPayload);
+
+    return res.json({
+        success: true,
+        command
+    });
 }));
 
 export default router;

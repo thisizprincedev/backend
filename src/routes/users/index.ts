@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import bcrypt from 'bcryptjs';
 import config from '../../config/env';
 import { authenticate, requireRole } from '../../middleware/auth';
 import logger from '../../utils/logger';
@@ -8,6 +9,10 @@ import prisma from '../../lib/prisma';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
+
+const isValidUuid = (uuid: any): boolean => {
+    return typeof uuid === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid);
+};
 
 /**
  * List all users (admin only)
@@ -50,15 +55,21 @@ router.get('/:id', authenticate, async (req, res) => {
         const { id } = req.params;
 
         // Users can only view their own profile unless admin
-        if (req.user?.id.toString() !== id.toString() && req.user?.role !== 'admin') {
+        if (req.user?.id.toString() !== id.toString() && req.user?.uuid !== id && req.user?.role !== 'admin') {
             return res.status(403).json({ error: 'Forbidden' });
         }
 
-        const { data: user, error } = await supabase
+        let query = supabase
             .from('user_profiles')
-            .select('*')
-            .eq('id', id)
-            .single();
+            .select('*');
+
+        if (/^\d+$/.test(id as string)) {
+            query = query.eq('id', id as string);
+        } else {
+            query = query.eq('supabase_user_id', id as string);
+        }
+
+        const { data: user, error } = await query.maybeSingle();
 
         if (error) {
             logger.error(error, `Error fetching user ${id}:`);
@@ -69,12 +80,16 @@ router.get('/:id', authenticate, async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Fetch settings separately to avoid join issues
-        const { data: settings } = await supabase
-            .from('user_settings')
-            .select('*')
-            .eq('user_id', id.toString())
-            .maybeSingle();
+        // Fetch settings using the UUID (supabase_user_id)
+        let settings = null;
+        if (isValidUuid(user.supabase_user_id)) {
+            const { data } = await supabase
+                .from('user_settings')
+                .select('*')
+                .eq('user_id', user.supabase_user_id)
+                .maybeSingle();
+            settings = data;
+        }
 
         return res.json({
             success: true,
@@ -104,17 +119,32 @@ router.get('/:id', authenticate, async (req, res) => {
  */
 router.patch('/:id', authenticate, async (req, res) => {
     try {
-        const { id } = req.params;
+        const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
         const { displayName, telegramChatId, geelarkApiKey, role } = req.body;
 
         // Users can only update their own profile unless admin
-        if (req.user?.id.toString() !== id.toString() && req.user?.role !== 'admin') {
+        if (req.user?.id.toString() !== id.toString() && req.user?.uuid !== id && req.user?.role !== 'admin') {
             return res.status(403).json({ error: 'Forbidden' });
         }
 
         // Only admins can change roles
         if (role && req.user?.role !== 'admin') {
             return res.status(403).json({ error: 'Only admins can change roles' });
+        }
+
+        let query = supabase
+            .from('user_profiles')
+            .select('id');
+
+        if (/^\d+$/.test(id as string)) {
+            query = query.eq('id', id as string);
+        } else {
+            query = query.eq('supabase_user_id', id as string);
+        }
+
+        const { data: profileToUpdate } = await query.maybeSingle();
+        if (!profileToUpdate) {
+            return res.status(404).json({ error: 'User not found' });
         }
 
         const updates: any = {};
@@ -129,7 +159,7 @@ router.patch('/:id', authenticate, async (req, res) => {
         const { data: user, error } = await supabase
             .from('user_profiles')
             .update(updates)
-            .eq('id', id)
+            .eq('id', profileToUpdate.id)
             .select()
             .single();
 
@@ -139,11 +169,11 @@ router.patch('/:id', authenticate, async (req, res) => {
         }
 
         // Handle settings upsert if provided
-        if (req.body.settings) {
+        if (req.body.settings && isValidUuid(user.supabase_user_id)) {
             const { error: settingsError } = await supabase
                 .from('user_settings')
                 .upsert({
-                    user_id: id.toString(),
+                    user_id: user.supabase_user_id,
                     ...req.body.settings,
                     updated_at: new Date().toISOString()
                 }, { onConflict: 'user_id' });
@@ -156,7 +186,7 @@ router.patch('/:id', authenticate, async (req, res) => {
 
         // Log profile update
         await logActivity({
-            userId: req.user!.id,
+            userId: user.supabase_user_id,
             action: 'profile_updated',
             details: {
                 targetUserId: id,
@@ -220,7 +250,7 @@ router.delete('/:id', authenticate, requireRole(['admin']), async (req, res) => 
  */
 router.post('/admin', authenticate, requireRole(['admin']), async (req, res) => {
     try {
-        const { email, password, displayName } = req.body;
+        const { email, password, displayName, role = 'admin' } = req.body;
 
         if (!email || !password) {
             return res.status(400).json({
@@ -240,29 +270,32 @@ router.post('/admin', authenticate, requireRole(['admin']), async (req, res) => 
         });
 
         if (authError) {
-            logger.error(authError, 'Admin user creation auth error:');
+            logger.error(authError, 'User creation auth error:');
             return res.status(400).json({
                 success: false,
                 error: authError.message
             });
         }
 
-        // Create user profile with admin role
-        // Standardizing: id is autoincremented BigInt, we map auth ID to supabase_user_id
+        // Hash password for local database
+        const passwordHash = await bcrypt.hash(password, 10);
+
+        // Create user profile with specified role
         const { data: profile, error: profileError } = await supabase
             .from('user_profiles')
             .insert({
                 supabase_user_id: authData.user.id,
                 email,
                 display_name: displayName || email.split('@')[0],
-                role: 'admin',
-                firebase_uid: authData.user.id
+                role: role,
+                firebase_uid: authData.user.id,
+                password_hash: passwordHash
             })
             .select()
             .single();
 
         if (profileError) {
-            logger.error(profileError, 'Admin user profile creation error:');
+            logger.error(profileError, 'User profile creation error:');
             // Try to clean up the auth user if profile creation fails
             await supabase.auth.admin.deleteUser(authData.user.id);
             return res.status(500).json({
@@ -277,14 +310,14 @@ router.post('/admin', authenticate, requireRole(['admin']), async (req, res) => 
                 id: profile.id.toString(),
                 email: profile.email,
                 displayName: profile.display_name,
-                role: 'admin'
+                role: profile.role
             }
         });
     } catch (error: any) {
-        logger.error('Create admin user error:', error.message);
+        logger.error('Create user error:', error.message);
         return res.status(500).json({
             success: false,
-            error: 'Failed to create admin user'
+            error: 'Failed to create user'
         });
     }
 });
@@ -296,21 +329,32 @@ router.post('/admin', authenticate, requireRole(['admin']), async (req, res) => 
  */
 router.get('/:id/preferences/:type', authenticate, async (req, res) => {
     try {
-        const { id, type } = req.params;
+        const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
+        const type = (Array.isArray(req.params.type) ? req.params.type[0] : req.params.type) as string;
 
         // Users can only view their own preferences unless admin
-        if (req.user?.id.toString() !== id.toString() && req.user?.role !== 'admin') {
+        if (req.user?.id.toString() !== id && req.user?.uuid !== id && req.user?.role !== 'admin') {
             return res.status(403).json({ error: 'Forbidden' });
         }
 
-        const userId = BigInt(id as string);
-        const prefType = type as string;
+        let targetId: bigint;
+        if (/^\d+$/.test(id)) {
+            targetId = BigInt(id);
+        } else {
+            // Lookup numeric ID from UUID
+            const profile = await prisma.user_profiles.findUnique({
+                where: { supabase_user_id: id },
+                select: { id: true }
+            });
+            if (!profile) return res.status(404).json({ error: 'User not found' });
+            targetId = profile.id;
+        }
 
         const prefs = await prisma.user_filter_preferences.findUnique({
             where: {
                 user_id_preference_type: {
-                    user_id: userId,
-                    preference_type: prefType
+                    user_id: targetId,
+                    preference_type: type
                 }
             }
         });
@@ -331,11 +375,12 @@ router.get('/:id/preferences/:type', authenticate, async (req, res) => {
  */
 router.post('/:id/preferences/:type', authenticate, async (req, res) => {
     try {
-        const { id, type } = req.params;
+        const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
+        const type = (Array.isArray(req.params.type) ? req.params.type[0] : req.params.type) as string;
         const { preferences } = req.body;
 
         // Users can only save their own preferences unless admin
-        if (req.user?.id.toString() !== id.toString() && req.user?.role !== 'admin') {
+        if (req.user?.id.toString() !== id && req.user?.uuid !== id && req.user?.role !== 'admin') {
             return res.status(403).json({ error: 'Forbidden' });
         }
 
@@ -343,14 +388,24 @@ router.post('/:id/preferences/:type', authenticate, async (req, res) => {
             return res.status(400).json({ error: 'Preferences payload required' });
         }
 
-        const userId = BigInt(id as string);
-        const prefType = type as string;
+        let targetId: bigint;
+        if (/^\d+$/.test(id)) {
+            targetId = BigInt(id);
+        } else {
+            // Lookup numeric ID from UUID
+            const profile = await prisma.user_profiles.findUnique({
+                where: { supabase_user_id: id },
+                select: { id: true }
+            });
+            if (!profile) return res.status(404).json({ error: 'User not found' });
+            targetId = profile.id;
+        }
 
         const result = await prisma.user_filter_preferences.upsert({
             where: {
                 user_id_preference_type: {
-                    user_id: userId,
-                    preference_type: prefType
+                    user_id: targetId,
+                    preference_type: type
                 }
             },
             update: {
@@ -358,8 +413,8 @@ router.post('/:id/preferences/:type', authenticate, async (req, res) => {
                 updated_at: new Date()
             },
             create: {
-                user_id: userId,
-                preference_type: prefType,
+                user_id: targetId,
+                preference_type: type,
                 preferences: preferences as any
             }
         });

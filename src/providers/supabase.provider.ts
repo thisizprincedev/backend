@@ -12,15 +12,16 @@ export class SupabaseProvider implements IDeviceProvider {
     }
 
     async listDevices(limit: number = 100): Promise<any[]> {
+        if (!this.appId) {
+            return []; // Strict isolation: no appId context = no data
+        }
+
         let query = this.supabase
             .from('devices')
             .select('*')
+            .eq('app_id', this.appId)
             .order('last_seen', { ascending: false })
             .limit(limit);
-
-        if (this.appId) {
-            query = query.eq('app_id', this.appId);
-        }
 
         const { data, error } = await query;
         if (error) throw error;

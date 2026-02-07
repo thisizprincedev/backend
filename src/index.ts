@@ -1,16 +1,36 @@
-import './utils/tracer'; // Must be first
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 
 import config from './config/env';
-import logger, { httpLogger } from './utils/logger';
+import logger from './utils/logger';
 import apiRoutes from './routes';
 import { errorHandler } from './middleware/errorHandler';
 import { initSocket } from './socket';
+import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.middleware';
+
+// Handle uncaught exceptions and unhandled rejections
+process.on('uncaughtException', (error) => {
+    logger.error('CRITICAL: Uncaught Exception', {
+        error: error.message,
+        stack: error.stack,
+        fatal: true
+    });
+    // Give some time for logs to be flushed before exiting
+    setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason) => {
+    logger.error('CRITICAL: Unhandled Rejection', {
+        reason: reason instanceof Error ? reason.message : reason,
+        stack: reason instanceof Error ? reason.stack : undefined,
+        fatal: true
+    });
+});
 
 // Initialize Backend Realtime Registry
 import { realtimeRegistry } from './services/realtimeRegistry';
@@ -38,6 +58,7 @@ app.set('trust proxy', 1);
 })();
 
 // Middleware
+app.use(metricsMiddleware);
 app.use(helmet());
 app.use(cors({
     origin: config.cors.origin,
@@ -47,12 +68,8 @@ app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Logging
-app.use(morgan('combined', {
-    stream: {
-        write: (message: string) => httpLogger(message.trim()),
-    },
-}));
+// Prometheus metrics endpoint (Internal/Admin only usually, but exposing for now)
+app.get('/metrics', metricsEndpoint);
 
 // Health check endpoint
 app.get('/health', (_req: Request, res: Response) => {
@@ -64,8 +81,35 @@ app.get('/health', (_req: Request, res: Response) => {
     });
 });
 
+// Rate Limiting for Device Registration (Anti-spam)
+const registrationLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 10, // Limit each IP to 10 registrations per hour
+    message: { error: 'Too many registration attempts from this IP, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false,
+    // Skip rate limiting if it's an authenticated admin
+    skip: (req) => req.headers.authorization !== undefined
+});
+
+// Logging (using morgan to bridge to Winston)
+app.use(morgan('combined', {
+    stream: {
+        write: (message: string) => logger.info(message.trim(), { type: 'http' }),
+    },
+}));
+
 // API routes
+app.use(`/api/${config.apiVersion}/mobile/devices`, registrationLimiter);
 app.use(`/api/${config.apiVersion}`, apiRoutes);
+
+// Crash test endpoint (Remove in production)
+if (config.env === 'development') {
+    app.get('/debug/crash', () => {
+        throw new Error('Debug: Simulated system crash');
+    });
+}
 
 // 404 handler
 app.use((req: Request, res: Response) => {
@@ -99,7 +143,9 @@ const startServer = async () => {
     }
 };
 
-startServer();
+if (process.env.SKIP_SERVER_START !== 'true') {
+    startServer();
+}
 
 // Graceful shutdown
 const shutdown = async (signal: string) => {

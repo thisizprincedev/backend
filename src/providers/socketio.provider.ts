@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { IDeviceProvider, DeviceStats } from './base';
 import { io as globalIo } from '../index';
+import config from '../config/env';
 
 export class SocketIOProvider implements IDeviceProvider {
     private baseUrl: string;
@@ -15,7 +16,11 @@ export class SocketIOProvider implements IDeviceProvider {
         try {
             const separator = path.includes('?') ? '&' : '?';
             const appIdParam = this.appId ? `${separator}appId=${this.appId}` : '';
-            const response = await axios.get(`${this.baseUrl}${path}${appIdParam}`);
+            const response = await axios.get(`${this.baseUrl}${path}${appIdParam}`, {
+                headers: {
+                    'X-API-Key': config.auth.socketioProviderAdminToken
+                }
+            });
             return response.data;
         } catch (error: any) {
             console.error(`SocketIOProvider error (${path}):`, error.message);
@@ -102,6 +107,10 @@ export class SocketIOProvider implements IDeviceProvider {
             command,
             payload: payload || {},
             status: 'pending'
+        }, {
+            headers: {
+                'X-API-Key': config.auth.socketioProviderAdminToken
+            }
         });
 
         const cmd = response.data;

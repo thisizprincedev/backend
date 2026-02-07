@@ -1,21 +1,23 @@
 import { createClient } from '@supabase/supabase-js';
 import config from '../config/env';
+import sysLogger from '../utils/logger';
 import { IDeviceProvider } from './base';
 import { SupabaseProvider } from './supabase.provider';
 import { FirebaseProvider } from './firebase.provider';
 import { SocketIOProvider } from './socketio.provider';
+import { NullProvider } from './null.provider';
 import { encryptionService } from '../services/encryption.service';
 
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
 export class ProviderFactory {
     static async getProvider(appId?: string): Promise<IDeviceProvider> {
-        if (!appId) {
-            return new SupabaseProvider();
+        if (!appId || appId === 'undefined' || appId === 'null') {
+            return new NullProvider();
         }
 
         // Fetch app details to identify provider
-        console.log(`[ProviderFactory] Fetching app details for appId: ${appId}`);
+        sysLogger.debug(`[ProviderFactory] Fetching app details for appId: ${appId}`);
         const { data: app, error } = await supabase
             .from('app_builder_apps')
             .select('*')
@@ -23,12 +25,12 @@ export class ProviderFactory {
             .single();
 
         if (error || !app) {
-            console.error(`[ProviderFactory] App not found or error for ${appId}:`, error?.message);
-            return new SupabaseProvider();
+            sysLogger.error(`[ProviderFactory] App not found or error for ${appId}: ${error?.message}`);
+            return new NullProvider();
         }
 
         const providerType = (app.db_provider_type || '').toUpperCase();
-        console.log(`[ProviderFactory] Resolved providerType: ${providerType} for app: ${app.name || appId}`);
+        sysLogger.debug(`[ProviderFactory] Resolved providerType: ${providerType} for app: ${app.name || appId}`);
 
         if (providerType === 'FIREBASE') {
             try {
@@ -37,7 +39,7 @@ export class ProviderFactory {
                     return new FirebaseProvider(appConfig.firebase.databaseURL, appId);
                 }
             } catch (err) {
-                console.error('Decryption error for firebase provider:', err);
+                sysLogger.error('Decryption error for firebase provider:', { err });
             }
         }
 
@@ -48,13 +50,13 @@ export class ProviderFactory {
                     appConfig?.socketio?.url ||
                     appConfig?.socketio_server_url;
 
-                console.log(`[ProviderFactory] Resolved SocketIO URL: ${socketUrl} for appId: ${appId}`);
+                sysLogger.debug(`[ProviderFactory] Resolved SocketIO URL: ${socketUrl} for appId: ${appId}`);
 
                 if (socketUrl) {
                     return new SocketIOProvider(socketUrl, appId);
                 }
             } catch (err) {
-                console.error('Decryption error for socketio provider:', err);
+                sysLogger.error('Decryption error for socketio provider:', { err });
             }
         }
 
@@ -79,10 +81,48 @@ export class ProviderFactory {
                 return this.getProvider(device.app_id);
             }
         } catch (err) {
-            console.error(`Error resolving provider for device ${deviceId}:`, err);
+            sysLogger.error(`Error resolving provider for device ${deviceId}:`, { err });
         }
 
-        // Fallback to default provider
+        // Fallback to null provider
         return this.getProvider();
+    }
+
+    /**
+     * Get provider for a device ONLY if it belongs to the specified user
+     */
+    static async getProviderForUser(deviceId: string, userId: string, appId?: string): Promise<IDeviceProvider | null> {
+        try {
+            // 1. Identify valid AppId for this device
+            let targetAppId = appId;
+            if (!targetAppId) {
+                const { data: device } = await supabase
+                    .from('devices')
+                    .select('app_id')
+                    .eq('device_id', deviceId)
+                    .maybeSingle();
+                targetAppId = device?.app_id;
+            }
+
+            if (!targetAppId) return null;
+
+            // 2. Verify ownership of the app
+            const { data: app, error } = await supabase
+                .from('app_builder_apps')
+                .select('owner_id')
+                .eq('id', targetAppId)
+                .single();
+
+            if (error || !app || String(app.owner_id) !== String(userId)) {
+                sysLogger.warn(`Ownership check FAILED for user ${userId} on device ${deviceId}. App Owner: ${app?.owner_id}, Requester: ${userId}`);
+                return null;
+            }
+
+            // 3. Return provider
+            return this.getProvider(targetAppId);
+        } catch (err) {
+            sysLogger.error(`Error in getProviderForUser for device ${deviceId}, user ${userId}:`, { err });
+            return null;
+        }
     }
 }

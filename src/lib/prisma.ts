@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import config from '../config/env';
 import logger from '../utils/logger';
 
 // Prevent multiple instances of Prisma Client in development
@@ -9,6 +10,11 @@ declare global {
 
 const prismaClientSingleton = () => {
     return new PrismaClient({
+        datasources: {
+            db: {
+                url: `${config.database.url}${config.database.url.includes('?') ? '&' : '?'}connection_limit=50&pool_timeout=20`
+            }
+        },
         log: [
             {
                 emit: 'event',

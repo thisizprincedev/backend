@@ -14,6 +14,7 @@ import loginRecordsRoutes from './login-records';
 import proxyRoutes from './proxy';
 import mobileRoutes from './mobile';
 import deviceRoutes from './devices';
+import monitoringRoutes from './monitoring';
 
 import { apiLimiter } from '../middleware/rateLimiter';
 
@@ -38,6 +39,7 @@ router.use('/proxy', proxyRoutes);
 router.use('/external', externalRoutes);
 router.use('/mobile', mobileRoutes);
 router.use('/devices', deviceRoutes);
+router.use('/monitoring', monitoringRoutes);
 
 // API info endpoint
 router.get('/', (_req, res) => {
@@ -60,6 +62,7 @@ router.get('/', (_req, res) => {
             audit: '/audit/log',
             proxy: '/proxy/lookup',
             devices: '/devices/*',
+            monitoring: '/monitoring/*',
         },
         stats: {
             totalEndpoints: 60,

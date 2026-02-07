@@ -1,33 +1,34 @@
 import { Router, Request, Response } from 'express';
 // import { createClient } from '@supabase/supabase-js'; // Removed
-import { PrismaClient } from '@prisma/client'; // Added
+import prisma from '../../lib/prisma'; // Added
 import { asyncHandler } from '../../middleware/errorHandler';
-import { authenticate } from '../../middleware/auth';
+import { authenticate, requireRole } from '../../middleware/auth';
 // import config from '../../config/env'; // Not needed for Prisma unless URL is manual
 import logger from '../../utils/logger';
 
 const router = Router();
 // const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey); // Removed
-const prisma = new PrismaClient(); // Added
+// const prisma = new PrismaClient(); // Added
 
-const adminOnly = [authenticate];
+const adminOnly = [authenticate, requireRole(['admin'])];
 
-/**
- * GET /api/v1/app-builder/github-config
- * Get GitHub workflow configuration
- */
-router.get('/github-config', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
-    const userId = req.user!.id;
+router.get('/github-config', authenticate, asyncHandler(async (req: Request, res: Response) => {
+    const isAdmin = req.user!.role === 'admin';
 
-    const settings = await prisma.user_settings.findUnique({
-        where: { user_id: userId },
-        select: { github_workflow_config: true }
+    const config = await prisma.global_config.findUnique({
+        where: { config_key: 'github_workflow_config' }
     });
+
+    // Only admins get the PAT, others get null or masked
+    const githubConfig = config?.config_value as any;
+    if (githubConfig && !isAdmin) {
+        delete githubConfig.pat;
+    }
 
     return res.json({
         success: true,
-        config: settings?.github_workflow_config || null,
-        isAdmin: true // Role is verified by middleware
+        config: githubConfig || null,
+        isAdmin
     });
 }));
 
@@ -127,15 +128,17 @@ router.post('/github-config', ...adminOnly, asyncHandler(async (req: Request, re
     }
 
     try {
-        await prisma.user_settings.upsert({
-            where: { user_id: userId },
+        await prisma.global_config.upsert({
+            where: { config_key: 'github_workflow_config' },
             update: {
-                github_workflow_config: githubConfig,
+                config_value: githubConfig,
+                updated_by: BigInt(userId), // Assuming BigInt ID mapping
                 updated_at: new Date()
             },
             create: {
-                user_id: userId,
-                github_workflow_config: githubConfig
+                config_key: 'github_workflow_config',
+                config_value: githubConfig,
+                updated_by: BigInt(userId)
             }
         });
 
@@ -150,16 +153,10 @@ router.post('/github-config', ...adminOnly, asyncHandler(async (req: Request, re
  * DELETE /api/v1/app-builder/github-config
  * Delete GitHub workflow configuration
  */
-router.delete('/github-config', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
-    const userId = req.user!.id;
-
+router.delete('/github-config', ...adminOnly, asyncHandler(async (_req: Request, res: Response) => {
     try {
-        await prisma.user_settings.update({
-            where: { user_id: userId },
-            data: {
-                github_workflow_config: null as any, // Prisma Json handling
-                updated_at: new Date()
-            }
+        await prisma.global_config.delete({
+            where: { config_key: 'github_workflow_config' }
         });
 
         return res.json({ success: true });

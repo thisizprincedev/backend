@@ -1,6 +1,6 @@
 import { connect, NatsConnection } from 'nats';
 import config from '../config/env';
-import logger from '../utils/logger';
+import sysLogger from '../utils/logger';
 
 /**
  * NatsService provides a shared NATS connection for the backend.
@@ -13,8 +13,8 @@ export class NatsService {
         if (this.nc) return;
 
         try {
-            console.log('📡 [NatsService] Attempting connection...');
-            logger.info(`[Nats] Connecting to NATS Core...`);
+            sysLogger.debug('📡 [NatsService] Attempting connection...');
+            sysLogger.info(`[Nats] Connecting to NATS Core...`);
 
             this.nc = await connect({
                 servers: config.mqtt.url.replace('mqtt://', 'nats://').replace(':1883', ':4222'),
@@ -23,18 +23,18 @@ export class NatsService {
                 name: "SrmBackend"
             });
 
-            logger.info(`[Nats] Connected successfully.`);
+            sysLogger.info(`[Nats] Connected successfully.`);
 
             // 🕵️ Debug: Listen to everything on the 'devices' subject
             const sub = this.nc.subscribe('devices.>');
             (async () => {
                 for await (const m of sub) {
-                    logger.info(`📡 [NATS TRACE] Received: ${m.subject}`);
+                    sysLogger.debug(`📡 [NATS TRACE] Received: ${m.subject}`);
                 }
             })();
 
         } catch (err) {
-            logger.error(err, '[Nats] Connection failed');
+            sysLogger.error(err, '[Nats] Connection failed');
         }
     }
 
@@ -46,7 +46,7 @@ export class NatsService {
         if (this.nc) {
             await this.nc.close();
             this.nc = null;
-            logger.info('[Nats] Connection closed.');
+            sysLogger.info('[Nats] Connection closed.');
         }
     }
 }

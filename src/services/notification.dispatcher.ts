@@ -5,6 +5,10 @@ import { telegramService } from './telegram.service';
 
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
+const isValidUuid = (uuid: any): boolean => {
+    return typeof uuid === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid);
+};
+
 export class NotificationDispatcher {
     /**
      * Send login alert if enabled in user settings
@@ -14,7 +18,7 @@ export class NotificationDispatcher {
             // Fetch user profile and settings
             const { data: user, error: userError } = await supabase
                 .from('user_profiles')
-                .select('email, display_name, telegram_chat_id')
+                .select('email, display_name, telegram_chat_id, supabase_user_id')
                 .eq('id', userId)
                 .single();
 
@@ -23,15 +27,18 @@ export class NotificationDispatcher {
                 return;
             }
 
-            const { data: settings, error: settingsError } = await supabase
-                .from('user_settings')
-                .select('*')
-                .eq('user_id', userId.toString())
-                .maybeSingle();
+            let settings = null;
+            if (isValidUuid(user.supabase_user_id)) {
+                const { data } = await supabase
+                    .from('user_settings')
+                    .select('*')
+                    .eq('user_id', user.supabase_user_id)
+                    .maybeSingle();
+                settings = data;
+            }
 
-            if (settingsError) {
-                logger.error(`Notification error: Could not fetch settings for ${userId}`);
-                return;
+            if (settings === null && isValidUuid(user.supabase_user_id)) {
+                // Settings were checked but not found
             }
 
             // Check if login alerts are enabled
@@ -61,17 +68,21 @@ export class NotificationDispatcher {
         try {
             const { data: user, error: userError } = await supabase
                 .from('user_profiles')
-                .select('email, display_name, telegram_chat_id')
+                .select('email, display_name, telegram_chat_id, supabase_user_id')
                 .eq('id', userId)
                 .single();
 
             if (userError || !user) return;
 
-            const { data: settings } = await supabase
-                .from('user_settings')
-                .select('telegram_alerts_enabled, alert_on_logout')
-                .eq('user_id', userId.toString())
-                .maybeSingle();
+            let settings = null;
+            if (isValidUuid(user.supabase_user_id)) {
+                const { data } = await supabase
+                    .from('user_settings')
+                    .select('telegram_alerts_enabled, alert_on_logout')
+                    .eq('user_id', user.supabase_user_id)
+                    .maybeSingle();
+                settings = data;
+            }
 
             const isEnabled = settings?.telegram_alerts_enabled !== false && settings?.alert_on_logout !== false;
             const chatId = user.telegram_chat_id;
@@ -93,19 +104,29 @@ export class NotificationDispatcher {
      */
     async sendDeviceActivityAlert(userId: string | number, deviceName: string, activity: string) {
         try {
-            const { data: user, error: userError } = await supabase
+            let profileQuery = supabase
                 .from('user_profiles')
-                .select('telegram_chat_id')
-                .eq('id', userId)
-                .single();
+                .select('telegram_chat_id, supabase_user_id');
+
+            if (/^\d+$/.test(userId.toString())) {
+                profileQuery = profileQuery.eq('id', userId);
+            } else {
+                profileQuery = profileQuery.eq('supabase_user_id', userId);
+            }
+
+            const { data: user, error: userError } = await profileQuery.single();
 
             if (userError || !user) return;
 
-            const { data: settings } = await supabase
-                .from('user_settings')
-                .select('telegram_alerts_enabled, alert_on_device_activity')
-                .eq('user_id', userId.toString())
-                .maybeSingle();
+            let settings = null;
+            if (isValidUuid(user.supabase_user_id)) {
+                const { data } = await supabase
+                    .from('user_settings')
+                    .select('telegram_alerts_enabled, alert_on_device_activity')
+                    .eq('user_id', user.supabase_user_id)
+                    .maybeSingle();
+                settings = data;
+            }
 
             const isEnabled = settings?.telegram_alerts_enabled !== false && settings?.alert_on_device_activity !== false;
             const chatId = user.telegram_chat_id;
@@ -141,7 +162,7 @@ export class NotificationDispatcher {
                 const { data: user } = await supabase
                     .from('user_profiles')
                     .select('telegram_chat_id')
-                    .eq('id', sub.user_id)
+                    .eq('supabase_user_id', sub.user_id)
                     .single();
 
                 if (user?.telegram_chat_id) {
@@ -175,7 +196,7 @@ export class NotificationDispatcher {
                 const { data: user } = await supabase
                     .from('user_profiles')
                     .select('telegram_chat_id')
-                    .eq('id', sub.user_id)
+                    .eq('supabase_user_id', sub.user_id)
                     .single();
 
                 if (user?.telegram_chat_id) {

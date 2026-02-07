@@ -89,12 +89,16 @@ router.post('/events', asyncHandler(async (req: Request, res: Response) => {
 
     // Broadcast to main panel's clients via internal Socket.IO
     if (type === 'device_change') {
+        const socketPayload = { eventType: 'UPDATE', new: { ...data, app_id: data.app_id } };
         if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-            io.emit('device_change', { eventType: 'UPDATE', new: data });
+            io.emit('device_change', socketPayload);
         }
         if (data.device_id) {
-            io.to(`device-${data.device_id}`).emit('device_change', { eventType: 'UPDATE', new: data });
-            io.to('admin-dashboard').emit('device_change', { eventType: 'UPDATE', new: data });
+            io.to(`device-${data.device_id}`).emit('device_change', socketPayload);
+            io.to('admin-dashboard').emit('device_change', socketPayload);
+            if (data.app_id) {
+                io.to(`app-${data.app_id}`).emit('device_change', socketPayload);
+            }
         }
     } else if (type === 'message_change') {
         if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {

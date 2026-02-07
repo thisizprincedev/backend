@@ -1,20 +1,20 @@
 import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import config from '../../config/env';
-import { authenticate, requireRole } from '../../middleware/auth';
+import { authenticate } from '../../middleware/auth';
 import { asyncHandler } from '../../middleware/errorHandler';
 import logger from '../../utils/logger';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
 
-const adminOnly = [authenticate, requireRole(['admin'])];
+const authenticatedOnly = [authenticate];
 
 /**
  * GET /api/v1/cloud-phones/profiles
  * List user's cloud phone API profiles
  */
-router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.id;
 
     const { data: profiles, error } = await supabase
@@ -44,7 +44,7 @@ router.get('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) =
  * GET /api/v1/cloud-phones/profiles/:id
  * Get single cloud phone API profile
  */
-router.get('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.get('/:id', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
 
@@ -83,7 +83,7 @@ router.get('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response
  * POST /api/v1/cloud-phones/profiles
  * Create new cloud phone API profile
  */
-router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.id;
     const { name, apiKey, traceId, isActive, isDefault } = req.body;
 
@@ -135,7 +135,7 @@ router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) 
  * PATCH /api/v1/cloud-phones/profiles/:id
  * Update cloud phone API profile
  */
-router.patch('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.patch('/:id', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
     const updates = req.body;
@@ -188,7 +188,7 @@ router.patch('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Respon
  * POST /api/v1/cloud-phones/profiles/:id/activate
  * Set profile as active and deactivate others
  */
-router.post('/:id/activate', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/activate', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
 
@@ -232,7 +232,7 @@ router.post('/:id/activate', ...adminOnly, asyncHandler(async (req: Request, res
  * DELETE /api/v1/cloud-phones/profiles/:id
  * Delete cloud phone API profile
  */
-router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+router.delete('/:id', ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
 

@@ -60,6 +60,7 @@ router.post('/register', authLimiter, async (req, res) => {
         const token = jwt.sign(
             {
                 id: user.id.toString(),
+                uuid: user.supabase_user_id,
                 email: user.email,
                 role: user.role,
                 firebase_uid: user.firebase_uid
@@ -70,7 +71,7 @@ router.post('/register', authLimiter, async (req, res) => {
 
         // Log registration
         await logActivity({
-            userId: user.id,
+            userId: user.supabase_user_id,
             action: 'registration',
             details: { email: user.email },
             ip: req.ip,
@@ -84,6 +85,7 @@ router.post('/register', authLimiter, async (req, res) => {
             success: true,
             user: {
                 id: user.id.toString(),
+                uuid: user.supabase_user_id,
                 email: user.email,
                 displayName: user.display_name,
                 role: user.role,
@@ -132,6 +134,7 @@ router.post('/login', authLimiter, async (req, res) => {
                 success: true,
                 requires2FA: true,
                 id: user.id.toString(),
+                uuid: user.supabase_user_id,
                 email: user.email,
                 telegramChatId: user.telegram_chat_id
             });
@@ -141,6 +144,7 @@ router.post('/login', authLimiter, async (req, res) => {
         const token = jwt.sign(
             {
                 id: user.id.toString(),
+                uuid: user.supabase_user_id,
                 email: user.email,
                 role: user.role,
                 firebase_uid: user.firebase_uid
@@ -151,7 +155,7 @@ router.post('/login', authLimiter, async (req, res) => {
 
         // Log successful login
         await logActivity({
-            userId: user.id,
+            userId: user.supabase_user_id,
             action: 'login',
             details: { email: user.email },
             ip: req.ip,
@@ -165,6 +169,7 @@ router.post('/login', authLimiter, async (req, res) => {
             success: true,
             user: {
                 id: user.id.toString(),
+                uuid: user.supabase_user_id,
                 email: user.email,
                 displayName: user.display_name,
                 role: user.role,
@@ -195,11 +200,17 @@ router.get('/me', async (req, res) => {
         const decoded = jwt.verify(token, config.jwt.secret) as any;
 
         // Get user from database
-        const { data: user, error } = await supabase
+        let query = supabase
             .from('user_profiles')
-            .select('id, email, display_name, role, created_at')
-            .eq('id', decoded.id)
-            .single();
+            .select('id, email, display_name, role, created_at, supabase_user_id');
+
+        if (/^\d+$/.test(decoded.id.toString())) {
+            query = query.eq('id', decoded.id);
+        } else {
+            query = query.eq('supabase_user_id', decoded.id);
+        }
+
+        const { data: user, error } = await query.maybeSingle();
 
         if (error || !user) {
             return res.status(401).json({ error: 'Invalid token' });
@@ -209,6 +220,7 @@ router.get('/me', async (req, res) => {
             success: true,
             user: {
                 id: user.id.toString(),
+                uuid: user.supabase_user_id,
                 email: user.email,
                 displayName: user.display_name,
                 role: user.role,
