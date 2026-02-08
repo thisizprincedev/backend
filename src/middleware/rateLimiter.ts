@@ -9,6 +9,11 @@ export const apiLimiter = rateLimit({
     message: {
         error: 'Too many requests, please try again later.',
     },
+    skip: (req) => {
+        // Skip rate limiting for trusted internal notifications (from ioserver)
+        const apiKey = req.body?.apiKey;
+        return !!(apiKey && apiKey === process.env.EXTERNAL_NOTIFY_API_KEY);
+    },
     handler: (req, res, _next, options) => {
         logger.warn({ ip: req.ip, method: req.method, url: req.url }, 'Rate limit exceeded');
         res.status(options.statusCode).send(options.message);

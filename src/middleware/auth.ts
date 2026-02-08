@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import config from '../config/env';
 import logger from '../utils/logger';
@@ -143,9 +142,6 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
  */
 export const authenticateDevice = async (req: Request, res: Response, next: NextFunction) => {
     const apiKey = req.headers['x-api-key'] || req.query.api_key;
-    const signature = req.headers['x-signature'] || req.query.signature;
-    const timestamp = req.headers['x-timestamp'] || req.query.timestamp;
-    const nonce = req.headers['x-nonce'] || req.query.nonce;
     const deviceId = req.headers['x-device-id'] || req.query.device_id;
 
     if (!deviceId) {
@@ -157,30 +153,6 @@ export const authenticateDevice = async (req: Request, res: Response, next: Next
     }
 
     try {
-        // Simple HMAC Verification using global static secret
-        if (signature && timestamp && nonce) {
-            // Prevent replay attacks (allow 5 min window)
-            const ts = parseInt(timestamp as string, 10);
-            const now = Math.floor(Date.now() / 1000);
-            if (isNaN(ts) || Math.abs(now - ts) > 300) {
-                return res.status(401).json({ error: 'Unauthorized: Invalid or expired timestamp' });
-            }
-
-            const secret = config.auth.mobileApiKey;
-            const message = `${timestamp}.${nonce}.${deviceId || ''}`;
-            const expectedSignature = crypto
-                .createHmac('sha256', secret)
-                .update(message)
-                .digest('hex');
-
-            if (signature === expectedSignature) {
-                req.deviceId = deviceId as string;
-                return next();
-            }
-
-            logger.warn({ deviceId, ip: req.ip }, 'Invalid HMAC signature attempt');
-            return res.status(401).json({ error: 'Unauthorized: Invalid Signature' });
-        }
 
         // Fallback to static API Key (Legacy/Initial Registration)
         if (apiKey === config.auth.mobileApiKey) {

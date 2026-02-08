@@ -115,6 +115,11 @@ export class RealtimeRegistry {
                     ...(typeof row.config_value === 'string' ? JSON.parse(row.config_value) : row.config_value)
                 };
 
+                // Environment variable override for emergency high-scale situations
+                if (process.env.HIGH_SCALE_MODE === 'true') {
+                    newConfig.highScaleMode = true;
+                }
+
                 // Physically toggle Firebase listeners to save costs
                 if (newConfig.firebaseUniversalEnabled && !this.firebaseListenersActive) {
                     this.setupFirebaseListeners();
