@@ -144,7 +144,19 @@ export class RealtimeRegistry {
 
             this.isInitialized = true;
 
-            // 4. Start Stale Device Cleanup (marks devices as offline if last_seen > 5m)
+            // 4. Reset all device statuses in Supabase on startup to align with cleared Redis
+            try {
+                const { error } = await this.supabase
+                    .from('devices')
+                    .update({ status: false })
+                    .eq('status', true);
+                if (error) logger.error(`[RealtimeRegistry] Startup status reset failed: ${error.message}`);
+                else logger.info('[RealtimeRegistry] Reset all stale device statuses to offline on startup.');
+            } catch (err: any) {
+                logger.error('[RealtimeRegistry] Startup status reset error:', err.message);
+            }
+
+            // 5. Start Stale Device Cleanup (marks devices as offline if last_seen > 5m)
             this.startStaleCheck();
 
             // 5. Start Config Sync (Refresh every 30s)
@@ -217,7 +229,8 @@ export class RealtimeRegistry {
         if (!this.systemConfig.staleCheckEnabled) return;
 
         try {
-            const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+            // Threshold reduced to 5 minutes for tighter accuracy
+            const staleThreshold = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
             // Mark devices as offline if they haven't been seen for 5+ minutes
             const { data, error } = await this.supabase
@@ -370,6 +383,13 @@ export class RealtimeRegistry {
 
     public async updateSupabaseDeviceStatus(deviceId: string, status: boolean, heartbeat?: any) {
         try {
+            // Sync with Redis Presence (Hot Cache)
+            if (status) {
+                presenceService.markOnline(deviceId);
+            } else {
+                presenceService.markOffline(deviceId);
+            }
+
             const updateData: any = {
                 status,
                 last_seen: new Date().toISOString()

@@ -67,11 +67,11 @@ router.get('/', authenticate, asyncHandler(async (req: Request, res: Response) =
 
     devices = devices.map(d => {
         const id = d.device_id || d.id;
-        // Merge status: Use 'true' if EITHER backend OR provider says online
-        const isOnline = (statuses[id] === true) || (d.status === true);
+        // Merge status: STRICTLY follow Redis Presence (Hot Cache)
+        // If it's not in Redis, it's offline, regardless of DB status.
         return {
             ...d,
-            status: isOnline
+            status: statuses[id] === true
         };
     });
 
@@ -113,7 +113,7 @@ router.get('/:deviceId', authenticate, asyncHandler(async (req: Request, res: Re
 
     if (!device) return res.status(404).json({ success: false, error: 'Device not found' });
 
-    // Merge status from Redis
+    // Merge status from Redis (Strict source of truth)
     const isOnline = await presenceService.isOnline(deviceId);
     device = { ...device, status: isOnline };
 
