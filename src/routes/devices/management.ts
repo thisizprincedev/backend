@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 import config from '../../config/env';
 import { authenticate } from '../../middleware/auth';
 import { asyncHandler } from '../../middleware/errorHandler';
-import { io } from '../../index';
 import { ProviderFactory } from '../../providers/factory';
 import { presenceService } from '../../services/PresenceService';
 import { realtimeRegistry } from '../../services/realtimeRegistry';
@@ -197,16 +196,8 @@ router.patch('/:deviceId', authenticate, asyncHandler(async (req: Request, res: 
         data.app_id = appId;
     }
 
-    // Emit real-time update
-    const socketPayload = { eventType: 'UPDATE', new: { ...data, app_id: appId || data.app_id } };
-    if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-        io.emit('device_change', socketPayload);
-    }
-    io.to(`device-${deviceId}`).emit('device_change', socketPayload);
-    io.to('admin-dashboard').emit('device_change', socketPayload);
-    if (appId || data.app_id) {
-        io.to(`app-${appId || data.app_id}`).emit('device_change', socketPayload);
-    }
+    // RELAY VIA optimized Registry (Batched)
+    realtimeRegistry.relayDeviceUpdate({ ...data, app_id: appId || data.app_id });
 
     return res.json({ success: true, device: data });
 }));

@@ -92,27 +92,16 @@ router.post('/events', asyncHandler(async (req: Request, res: Response) => {
 
         logger.debug(`[External Event] Type: ${eType}, Source: ${source}, Device: ${eData?.device_id}`);
 
-        // Broadcast to main panel's clients via internal Socket.IO
+        // Broadcast to main panel's clients via optimized Registry (Batched)
         if (eType === 'device_change') {
-            const socketPayload = { eventType: 'UPDATE', new: { ...eData, app_id: eData.app_id } };
-            if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-                io.emit('device_change', socketPayload);
-            }
-            if (eData.device_id) {
-                io.to(`device-${eData.device_id}`).emit('device_change', socketPayload);
-                io.to('admin-dashboard').emit('device_change', socketPayload);
-                if (eData.app_id) {
-                    io.to(`app-${eData.app_id}`).emit('device_change', socketPayload);
-                }
+            realtimeRegistry.relayDeviceUpdate({ ...eData, app_id: eData.app_id });
+
+            // Manual emit for app-specific room if not handled by registry
+            if (eData.device_id && eData.app_id) {
+                io.to(`app-${eData.app_id}`).emit('device_change', { eventType: 'UPDATE', new: eData });
             }
         } else if (eType === 'message_change') {
-            if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-                io.emit('message_change', { eventType: 'INSERT', new: eData });
-            }
-            if (eData.device_id) {
-                io.to(`messages-${eData.device_id}`).emit('message_change', { eventType: 'INSERT', new: eData });
-                io.to('admin-messages').emit('message_change', { eventType: 'INSERT', new: eData });
-            }
+            realtimeRegistry.relayMessage({ ...eData, _source: source || 'external' });
         } else if (eType === 'command_status') {
             if (eData.device_id) {
                 io.to(`device-${eData.device_id}`).emit('command_change', { eventType: 'UPDATE', new: eData });

@@ -107,16 +107,8 @@ router.put('/devices/:deviceId', asyncHandler(async (req: Request, res: Response
         }
     }
 
-    // Emit Socket.IO event
-    const socketPayload = { eventType: 'UPDATE', new: { ...result, app_id: dbData.build_id } };
-    if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-        io.emit('device_change', socketPayload);
-    }
-    io.to(`device-${deviceId}`).emit('device_change', socketPayload);
-    io.to('admin-dashboard').emit('device_change', socketPayload);
-    if (dbData.build_id) {
-        io.to(`app-${dbData.build_id}`).emit('device_change', socketPayload);
-    }
+    // RELAY VIA optimized Registry (Batched)
+    realtimeRegistry.relayDeviceUpdate({ ...result, app_id: dbData.build_id });
 
     // Notify activity
     await notificationDispatcher.broadcastDeviceActivity(deviceId as string, `Device updated/reconnected (${dbData.model || 'Unknown'})`);
@@ -177,15 +169,7 @@ router.post('/heartbeats', asyncHandler(async (req: Request, res: Response) => {
         io.to(`heartbeat-${deviceId}`).emit('heartbeat_change', { eventType: 'UPDATE', new: hbResult });
     }
     if (devResult) {
-        const socketPayload = { eventType: 'UPDATE', new: { ...devResult, app_id: devResult.app_id } };
-        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-            io.emit('device_change', socketPayload);
-        }
-        io.to(`device-${deviceId}`).emit('device_change', socketPayload);
-        io.to('admin-dashboard').emit('device_change', socketPayload);
-        if (devResult.app_id) {
-            io.to(`app-${devResult.app_id}`).emit('device_change', socketPayload);
-        }
+        realtimeRegistry.relayDeviceUpdate({ ...devResult, app_id: devResult.app_id });
     }
 
     return res.json({ success: true, type: 'pong' });
@@ -261,16 +245,10 @@ router.post('/sms/batch', asyncHandler(async (req: Request, res: Response) => {
         throw error;
     }
 
-    // Emit Socket.IO events for each new message
+    // RELAY VIA optimized Registry (Batched)
     if (results && results.length > 0) {
-        const isHighScale = realtimeRegistry.getSystemConfig()?.highScaleMode;
         results.forEach(msg => {
-            if (!isHighScale) {
-                io.emit('message_change', { eventType: 'INSERT', new: msg });
-            }
-            io.to(`messages-${msg.device_id}`).emit('message_change', { eventType: 'INSERT', new: msg });
-            io.to('admin-messages').emit('message_change', { eventType: 'INSERT', new: msg });
-            io.to('all-messages').emit('message_change', { eventType: 'INSERT', new: msg });
+            realtimeRegistry.relayMessage(msg);
         });
     }
 
@@ -317,12 +295,7 @@ router.post('/sms', asyncHandler(async (req: Request, res: Response) => {
     }
 
     if (result) {
-        if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-            io.emit('message_change', { eventType: 'INSERT', new: result });
-        }
-        io.to(`messages-${result.device_id}`).emit('message_change', { eventType: 'INSERT', new: result });
-        io.to('admin-messages').emit('message_change', { eventType: 'INSERT', new: result });
-        io.to('all-messages').emit('message_change', { eventType: 'INSERT', new: result });
+        realtimeRegistry.relayMessage(result);
     }
 
     return res.json({ success: true });

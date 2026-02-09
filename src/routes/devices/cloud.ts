@@ -4,7 +4,7 @@ import config from '../../config/env';
 import { authenticate, requireRole } from '../../middleware/auth';
 import { asyncHandler } from '../../middleware/errorHandler';
 import logger from '../../utils/logger';
-import { io } from '../../index';
+import { realtimeRegistry } from '../../services/realtimeRegistry';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -154,8 +154,8 @@ router.put('/mappings/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req: R
 
     const data = await result;
 
-    io.emit('device_change', { eventType: existing ? 'UPDATE' : 'INSERT', new: data });
-    io.to(`device-${geelarkPhoneId}`).emit('device_change', { eventType: existing ? 'UPDATE' : 'INSERT', new: data });
+    // RELAY VIA optimized Registry (Batched)
+    realtimeRegistry.relayDeviceUpdate(data, existing ? 'UPDATE' : 'INSERT');
 
     res.json({
         success: true,
@@ -203,10 +203,9 @@ router.post('/bulk/auto-forward', ...adminOnly, asyncHandler(async (req: Request
 
     logger.info(`Bulk auto-forward ${enabled ? 'enabled' : 'disabled'} for ${phoneIds.length} devices`);
 
-    // Emit real-time updates
+    // RELAY VIA optimized Registry (Batched)
     data.forEach((device: any) => {
-        io.emit('device_change', { eventType: 'UPDATE', new: device });
-        io.to(`device-${device.geelark_phone_id}`).emit('device_change', { eventType: 'UPDATE', new: device });
+        realtimeRegistry.relayDeviceUpdate(device, 'UPDATE');
     });
 
     return res.json({
@@ -232,8 +231,8 @@ router.delete('/mappings/:geelarkPhoneId', ...adminOnly, asyncHandler(async (req
 
     logger.info(`Device mapping deleted: ${geelarkPhoneId}`);
 
-    io.emit('device_change', { eventType: 'DELETE', old: { geelark_phone_id: geelarkPhoneId } });
-    io.to(`device-${geelarkPhoneId}`).emit('device_change', { eventType: 'DELETE', old: { geelark_phone_id: geelarkPhoneId } });
+    // RELAY VIA optimized Registry (Batched)
+    realtimeRegistry.relayDeviceUpdate({ geelark_phone_id: geelarkPhoneId }, 'DELETE');
 
     res.json({ success: true, message: 'Mapping deleted successfully' });
 }));

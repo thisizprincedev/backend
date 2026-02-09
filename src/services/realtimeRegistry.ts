@@ -358,7 +358,7 @@ export class RealtimeRegistry {
         }
     }
 
-    public relayMessage(msg: any) {
+    public relayMessage(msg: any, eventType: 'INSERT' | 'UPDATE' | 'DELETE' = 'INSERT') {
         if (!this.systemConfig.relayEnabled) return;
 
         try {
@@ -373,36 +373,40 @@ export class RealtimeRegistry {
                 return;
             }
 
-            const payload = { eventType: 'INSERT', new: { ...msg, device_id: deviceId } };
+            const payload = { eventType, new: eventType !== 'DELETE' ? { ...msg, device_id: deviceId } : undefined, old: eventType === 'DELETE' ? msg : undefined };
 
             // Emit to Global (Skip in High-Scale to save bandwidth)
             if (!this.systemConfig.highScaleMode) {
                 io.emit('message_change', payload);
             }
 
-            // Always Emit to Device-Specific Room (Immediate)
-            // This is for users looking at a specific device's message list
+            // 1. Immediate Emit to Device-Specific Message Room
             io.to(`messages-${deviceId}`).emit('message_change', payload);
 
+            // 2. Extra emit for app-specific room (Immediate)
+            const appId = msg.app_id || msg.appId;
+            if (appId) {
+                io.to(`app-${appId}`).emit('message_change', payload);
+            }
+
             // BATCHED Admin Updates: Only if NOT in high-scale mode
-            // This prevents flooding the global admin dashboard with millions of messages
             if (!this.systemConfig.highScaleMode) {
                 this.eventBuffer.messageUpdates.push(payload);
             }
 
-            logger.info(`[RealtimeRegistry] Relayed message for ${deviceId} (HighScale: ${this.systemConfig.highScaleMode}).`);
+            logger.info(`[RealtimeRegistry] Relayed message for ${deviceId} (Event: ${eventType}, App: ${appId || 'none'}).`);
         } catch (err) {
             logger.error(err, '[RealtimeRegistry] Relay error');
         }
     }
 
-    public relayDeviceUpdate(device: any) {
+    public relayDeviceUpdate(device: any, eventType: 'INSERT' | 'UPDATE' | 'DELETE' = 'UPDATE') {
         if (!this.systemConfig.relayEnabled) return;
 
         try {
             const io = getIo();
-            const deviceId = device.device_id || device.id;
-            const payload = { eventType: 'UPDATE', new: device };
+            const deviceId = device.device_id || device.id || (eventType === 'DELETE' ? device.geelark_phone_id : undefined);
+            const payload = { eventType, new: eventType !== 'DELETE' ? device : undefined, old: eventType === 'DELETE' ? device : undefined };
 
             if (!this.systemConfig.highScaleMode) {
                 io.emit('device_change', payload);
@@ -410,23 +414,29 @@ export class RealtimeRegistry {
 
             if (deviceId) {
                 // 1. Full update for specific device view (Immediate)
-                // This is used when a user has a specific device details page open
                 io.to(`device-${deviceId}`).emit('device_change', payload);
 
-                // 2. Light update for Global Admin Dashboard (Batched)
+                // 2. App-specific room (Immediate)
+                const appId = device.app_id || device.appId;
+                if (appId) {
+                    io.to(`app-${appId}`).emit('device_change', payload);
+                }
+
+                // 3. Light update for Global Admin Dashboard (Batched)
                 // We only send ID, Status, and Last Seen to keep the list view fast
-                const lightUpdate = {
+                const lightUpdate = eventType !== 'DELETE' ? {
                     device_id: deviceId,
                     status: device.status,
-                    last_seen: device.last_seen || new Date().toISOString()
-                };
+                    last_seen: device.last_seen || new Date().toISOString(),
+                    app_id: appId
+                } : device; // For delete, we just send what we have (usually {id})
 
-                this.eventBuffer.deviceUpdates.push({ eventType: 'UPDATE', new: lightUpdate });
+                this.eventBuffer.deviceUpdates.push({ eventType, new: eventType !== 'DELETE' ? lightUpdate : undefined, old: eventType === 'DELETE' ? lightUpdate : undefined });
             }
         } catch (err) { }
     }
 
-    private relayKeylog(log: any) {
+    public relayKeylog(log: any) {
         try {
             const io = getIo();
             const deviceId = log.device_id;
