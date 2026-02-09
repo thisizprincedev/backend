@@ -25,6 +25,7 @@ export class RealtimeRegistry {
     private firebaseListenersActive = false;
     private supabaseListenersActive = false;
     private initPromise: Promise<void> | null = null;
+    private appIdCache = new Map<string, string>();
 
     private systemConfig = {
         mqttEnabled: true,
@@ -378,10 +379,18 @@ export class RealtimeRegistry {
                 updateData.heartbeat = heartbeat;
             }
 
-            await this.supabase
+            const { data, error } = await this.supabase
                 .from('devices')
                 .update(updateData)
-                .eq('device_id', deviceId);
+                .eq('device_id', deviceId)
+                .select('app_id')
+                .maybeSingle();
+
+            if (error) {
+                logger.error(`[RealtimeRegistry] Failed to fetch app_id for cache (${deviceId}): ${error.message}`);
+            } else if (data?.app_id) {
+                this.appIdCache.set(deviceId, data.app_id);
+            }
         } catch (err: any) {
             logger.error(`[RealtimeRegistry] Merge status failed for ${deviceId}:`, err.message);
         }
@@ -404,6 +413,12 @@ export class RealtimeRegistry {
 
             const payload = { eventType, new: eventType !== 'DELETE' ? { ...msg, device_id: deviceId } : undefined, old: eventType === 'DELETE' ? msg : undefined };
 
+            // Resolve App ID
+            let appId = msg.app_id || msg.appId;
+            if (!appId && deviceId) {
+                appId = this.appIdCache.get(deviceId);
+            }
+
             // Emit to Global (Skip in High-Scale to save bandwidth)
             if (!this.systemConfig.highScaleMode) {
                 io.emit('message_change', payload);
@@ -413,9 +428,11 @@ export class RealtimeRegistry {
             io.to(`messages-${deviceId}`).emit('message_change', payload);
 
             // 2. Extra emit for app-specific room (Immediate)
-            const appId = msg.app_id || msg.appId;
             if (appId) {
                 io.to(`app-${appId}`).emit('message_change', payload);
+                if (deviceId && !this.appIdCache.has(deviceId)) {
+                    this.appIdCache.set(deviceId, appId);
+                }
             }
 
             // BATCHED Admin Updates: Only if NOT in high-scale mode
@@ -441,12 +458,17 @@ export class RealtimeRegistry {
                 io.emit('device_change', payload);
             }
 
+            // Resolve App ID
+            let appId = device.app_id || device.appId;
+            if (!appId && deviceId) {
+                appId = this.appIdCache.get(deviceId);
+            }
+
             if (deviceId) {
                 // 1. Full update for specific device view (Immediate)
                 io.to(`device-${deviceId}`).emit('device_change', payload);
 
                 // 2. App-specific room (Immediate)
-                const appId = device.app_id || device.appId;
                 if (appId) {
                     io.to(`app-${appId}`).emit('device_change', payload);
                 }
@@ -462,7 +484,9 @@ export class RealtimeRegistry {
 
                 this.eventBuffer.deviceUpdates.push({ eventType, new: eventType !== 'DELETE' ? lightUpdate : undefined, old: eventType === 'DELETE' ? lightUpdate : undefined });
             }
-        } catch (err) { }
+        } catch (err) {
+            logger.error(`[RealtimeRegistry] relayDeviceUpdate error: ${err}`);
+        }
     }
 
     public relayKeylog(log: any) {
