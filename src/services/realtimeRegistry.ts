@@ -474,6 +474,15 @@ export class RealtimeRegistry {
             const deviceId = device.device_id || device.id || (eventType === 'DELETE' ? device.geelark_phone_id : undefined);
             const payload = { eventType, new: eventType !== 'DELETE' ? device : undefined, old: eventType === 'DELETE' ? device : undefined };
 
+            // Sync with Redis Presence if status is explicitly provided (handles ioserver relays)
+            if (deviceId && device.status !== undefined && eventType !== 'DELETE') {
+                if (device.status) {
+                    presenceService.markOnline(deviceId);
+                } else {
+                    presenceService.markOffline(deviceId);
+                }
+            }
+
             if (!this.systemConfig.highScaleMode) {
                 io.emit('device_change', payload);
             }
