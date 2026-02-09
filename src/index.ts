@@ -35,7 +35,6 @@ process.on('unhandledRejection', (reason) => {
 // Initialize Backend Realtime Registry
 import { realtimeRegistry } from './services/realtimeRegistry';
 import { mqttBridge } from './services/MqttBridge';
-// import { natsService } from './services/NatsService';
 
 const app: Application = express();
 const httpServer = createServer(app);
@@ -49,7 +48,6 @@ app.set('trust proxy', 1);
 // 🛡️ Guard first, then Bridge
 (async () => {
     try {
-        // await natsService.init(); // Legacy NATS tracing disabled for HiveMQ migration
         await realtimeRegistry.init();
         // mqttBridge.init(); // Now managed dynamically by RealtimeRegistry
     } catch (err) {
@@ -157,7 +155,6 @@ const shutdown = async (signal: string) => {
         try {
             mqttBridge.shutdown();
             realtimeRegistry.shutdown();
-            // await natsService.close(); // Legacy NATS tracing disabled for HiveMQ migration
 
             logger.info('All services shut down. Exiting.');
             process.exit(0);

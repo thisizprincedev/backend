@@ -26,6 +26,11 @@ export interface SystemStats {
         total: number;
         receivedToday: number;
     };
+    history: {
+        time: string;
+        online: number;
+        total: number;
+    }[];
     uptime: number;
 }
 
@@ -131,6 +136,7 @@ class MonitoringService {
         const defaultStats: SystemStats = {
             devices: { total: 0, online: 0, activeToday: 0 },
             messages: { total: 0, receivedToday: 0 },
+            history: [],
             uptime: process.uptime()
         };
 
@@ -154,6 +160,35 @@ class MonitoringService {
                 this.supabase.from('sms_messages').select('*', { count: 'exact', head: true }).gt('created_at', today.toISOString())
             ]);
 
+            // Fetch 24h history (simplified approximation using heartbeat counts)
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const { data: historyData } = await this.supabase
+                .from('heartbeat')
+                .select('last_update, device_id')
+                .gt('last_update', twentyFourHoursAgo.toISOString());
+
+            // Process into hourly buckets
+            const history: any[] = [];
+            if (historyData) {
+                for (let i = 0; i < 24; i++) {
+                    const start = new Date(twentyFourHoursAgo.getTime() + i * 3600000);
+                    const end = new Date(start.getTime() + 3600000);
+                    const uniqueDevices = new Set(
+                        historyData
+                            .filter((h: any) => {
+                                const d = new Date(h.last_update);
+                                return d >= start && d < end;
+                            })
+                            .map((h: any) => h.device_id)
+                    );
+                    history.push({
+                        time: start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        online: uniqueDevices.size,
+                        total: totalDevices || 0
+                    });
+                }
+            }
+
             return {
                 devices: {
                     total: totalDevices || 0,
@@ -164,6 +199,7 @@ class MonitoringService {
                     total: totalMessages || 0,
                     receivedToday: recentMessages || 0
                 },
+                history: history.length > 0 ? history : [],
                 uptime: process.uptime()
             };
         } catch (error) {

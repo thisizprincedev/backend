@@ -64,6 +64,21 @@ export class PresenceService {
             return {};
         }
     }
+
+    /**
+     * Clear all presence keys (Cleanup on startup)
+     */
+    async clearAll(): Promise<void> {
+        try {
+            const keys = await redis.keys(`${PresenceService.PRESENCE_KEY_PREFIX}*`);
+            if (keys.length > 0) {
+                await redis.del(...keys);
+                logger.info(`[PresenceService] Cleared ${keys.length} stale presence keys.`);
+            }
+        } catch (err) {
+            logger.error(err, '[PresenceService] Failed to clear presence keys:');
+        }
+    }
 }
 
 export const presenceService = new PresenceService();

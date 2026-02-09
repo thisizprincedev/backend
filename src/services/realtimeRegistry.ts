@@ -4,6 +4,7 @@ import config from '../config/env';
 import logger from '../utils/logger';
 import { getIo } from '../socket';
 import { mqttBridge } from './MqttBridge';
+import { presenceService } from './PresenceService';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -22,6 +23,8 @@ export class RealtimeRegistry {
     private staleCheckInterval: NodeJS.Timeout | null = null;
     private configSyncInterval: NodeJS.Timeout | null = null;
     private firebaseListenersActive = false;
+    private supabaseListenersActive = false;
+    private initPromise: Promise<void> | null = null;
 
     private systemConfig = {
         mqttEnabled: true,
@@ -98,50 +101,60 @@ export class RealtimeRegistry {
     }
 
     async init() {
-        if (this.isInitialized) return;
+        if (this.initPromise) return this.initPromise;
 
-        fs.appendFileSync(DEBUG_LOG_PATH, `[${new Date().toISOString()}] Registry INIT started\n`);
-        logger.info('Initializing RealtimeRegistry global listeners...');
+        this.initPromise = (async () => {
+            if (this.isInitialized) return;
 
-        // 1. Fetch Universal Firebase Database URL from global_config
-        try {
-            const { data: globalProviderRow } = await this.supabase
-                .from('global_config')
-                .select('config_value')
-                .eq('config_key', 'app_builder_db_provider_config')
-                .maybeSingle();
+            fs.writeFileSync(DEBUG_LOG_PATH, `[${new Date().toISOString()}] Registry INIT started (Truncated)\n`);
+            logger.info('Initializing RealtimeRegistry global listeners...');
 
-            const globalProviderConfig = globalProviderRow?.config_value as any;
-            if (globalProviderConfig?.firebase?.databaseUrl) {
-                this.universalDbUrl = globalProviderConfig.firebase.databaseUrl;
-                logger.info(`[RealtimeRegistry] Universal Firebase URL found: ${this.universalDbUrl}`);
+            // 0. Cleanup Redis Presence on Startup
+            presenceService.clearAll();
+
+            // 1. Fetch Universal Firebase Database URL from global_config
+            try {
+                const { data: globalProviderRow } = await this.supabase
+                    .from('global_config')
+                    .select('config_value')
+                    .eq('config_key', 'app_builder_db_provider_config')
+                    .maybeSingle();
+
+                const globalProviderConfig = globalProviderRow?.config_value as any;
+                if (globalProviderConfig?.firebase?.databaseUrl) {
+                    this.universalDbUrl = globalProviderConfig.firebase.databaseUrl;
+                    logger.info(`[RealtimeRegistry] Universal Firebase URL found: ${this.universalDbUrl}`);
+                }
+            } catch (err: any) {
+                logger.error('Failed to fetch universal firebase config:', err.message);
             }
-        } catch (err: any) {
-            logger.error('Failed to fetch universal firebase config:', err.message);
-        }
 
-        // 2. Setup Supabase Global Listeners
-        this.setupSupabaseListeners();
+            // 2. Setup Supabase Global Listeners
+            this.setupSupabaseListeners();
 
-        // 3. Setup Universal Firebase Global Listeners
-        if (this.firebaseAdmin && this.universalDbUrl) {
-            const project = this.firebaseAdmin.options.credential ? (this.firebaseAdmin.options as any).projectId : 'unknown';
-            logger.info(`[RealtimeRegistry] Firebase Admin project: ${project}`);
-            // setupFirebaseListeners now called by syncSystemConfig based on flag
-        } else {
-            logger.warn('[RealtimeRegistry] Firebase Admin or Universal URL missing. Firebase relay INACTIVE.');
-        }
+            // 3. Setup Universal Firebase Global Listeners
+            if (this.firebaseAdmin && this.universalDbUrl) {
+                const project = this.firebaseAdmin.options.credential ? (this.firebaseAdmin.options as any).projectId : 'unknown';
+                logger.info(`[RealtimeRegistry] Firebase Admin project: ${project}`);
+                // setupFirebaseListeners now called by syncSystemConfig based on flag
+            } else {
+                logger.warn('[RealtimeRegistry] Firebase Admin or Universal URL missing. Firebase relay INACTIVE.');
+            }
 
-        this.isInitialized = true;
+            this.isInitialized = true;
 
-        // 4. Start Stale Device Cleanup (marks devices as offline if last_seen > 5m)
-        this.startStaleCheck();
+            // 4. Start Stale Device Cleanup (marks devices as offline if last_seen > 5m)
+            this.startStaleCheck();
 
-        // 5. Start Config Sync (Refresh every 30s)
-        this.startConfigSync();
-        await this.syncSystemConfig();
+            // 5. Start Config Sync (Refresh every 30s)
+            this.startConfigSync();
+            await this.syncSystemConfig();
 
-        logger.info('RealtimeRegistry initialized successfully');
+            logger.info('RealtimeRegistry initialized successfully');
+            this.isInitialized = true;
+        })();
+
+        return this.initPromise;
     }
 
     private startConfigSync() {
@@ -227,6 +240,9 @@ export class RealtimeRegistry {
     }
 
     private setupSupabaseListeners() {
+        if (this.supabaseListenersActive) return;
+        this.supabaseListenersActive = true;
+
         logger.info('Setting up Supabase global real-time listeners...');
 
         this.supabase
@@ -288,8 +304,8 @@ export class RealtimeRegistry {
                 });
             };
 
-            db.ref('sms').on('child_added', (s) => handleMessageChange(s, 'child_added'));
-            db.ref('sms').on('child_changed', (s) => handleMessageChange(s, 'child_changed'));
+            db.ref('sms').on('child_added', (s: admin.database.DataSnapshot) => handleMessageChange(s, 'child_added'));
+            db.ref('sms').on('child_changed', (s: admin.database.DataSnapshot) => handleMessageChange(s, 'child_changed'));
 
             // Listen for status changes
             const handleStatus = (snapshot: admin.database.DataSnapshot) => {
@@ -317,7 +333,11 @@ export class RealtimeRegistry {
 
                     const lastSeen = new Date().toISOString();
                     this.relayDeviceUpdate({ device_id: deviceId, heartbeat: hb, last_seen: lastSeen });
-                    this.updateSupabaseDeviceStatus(deviceId, true, hb);
+
+                    // Throttled persistence: only update DB if NOT in highScaleMode
+                    if (!this.systemConfig.highScaleMode) {
+                        this.updateSupabaseDeviceStatus(deviceId, true, hb);
+                    }
                 }
             };
 
@@ -347,7 +367,7 @@ export class RealtimeRegistry {
         }
     }
 
-    private async updateSupabaseDeviceStatus(deviceId: string, status: boolean, heartbeat?: any) {
+    public async updateSupabaseDeviceStatus(deviceId: string, status: boolean, heartbeat?: any) {
         try {
             const updateData: any = {
                 status,
