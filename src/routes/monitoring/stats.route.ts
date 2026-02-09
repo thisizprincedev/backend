@@ -30,15 +30,4 @@ router.get('/logs', (_req, res) => {
     res.json(monitoringService.getLogs());
 });
 
-router.post('/logs/search', async (req, res) => {
-    try {
-        const { query, level, limit } = req.body;
-        const results = await monitoringService.searchLogs(query, level, limit);
-        res.json(results);
-    } catch (error) {
-        logger.error('Failed to search logs', { error });
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
 export default router;
