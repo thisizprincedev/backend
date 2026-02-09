@@ -1,9 +1,8 @@
 import winston from 'winston';
 import Transport from 'winston-transport';
-import { ElasticsearchTransport } from 'winston-elasticsearch';
 import config from '../config/env';
 
-const { level, consoleLevel, elasticsearch } = config.logging;
+const { level, consoleLevel } = config.logging;
 
 // Standard formatting for all transports
 const standardFormat = winston.format.combine(
@@ -59,41 +58,6 @@ const transports: winston.transport[] = [
     }),
     new LiveBufferTransport()
 ];
-
-// Add Elasticsearch transport if enabled
-if (elasticsearch.enabled) {
-    try {
-        const esTransport = new ElasticsearchTransport({
-            level: level,
-            indexPrefix: elasticsearch.indexPrefix,
-            clientOpts: {
-                node: elasticsearch.node,
-                auth: elasticsearch.username && elasticsearch.password ? {
-                    username: elasticsearch.username,
-                    password: elasticsearch.password,
-                } : undefined
-            },
-            // Reduce payload size
-            transformer: (logData) => {
-                const { level, message, timestamp, ...meta } = logData;
-                return {
-                    '@timestamp': timestamp,
-                    severity: level,
-                    message,
-                    fields: meta
-                };
-            }
-        });
-
-        esTransport.on('error', (error) => {
-            console.error('Elasticsearch transport error:', error);
-        });
-
-        transports.push(esTransport);
-    } catch (err) {
-        console.error('Failed to initialize Elasticsearch transport:', err);
-    }
-}
 
 const loggerVisible = winston.createLogger({
     level: level,

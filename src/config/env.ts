@@ -58,13 +58,6 @@ interface Config {
     logging: {
         level: string;
         consoleLevel: string;
-        elasticsearch: {
-            node: string;
-            indexPrefix: string;
-            username?: string;
-            password?: string;
-            enabled: boolean;
-        };
     };
 }
 
@@ -156,13 +149,6 @@ const config: Config = {
     logging: {
         level: process.env.LOG_LEVEL || 'warn',
         consoleLevel: process.env.CONSOLE_LOG_LEVEL || 'warn',
-        elasticsearch: {
-            node: process.env.ELASTICSEARCH_NODE || 'http://localhost:9200',
-            indexPrefix: process.env.ELASTICSEARCH_INDEX_PREFIX || 'srm-panel',
-            username: process.env.ELASTICSEARCH_USERNAME,
-            password: process.env.ELASTICSEARCH_PASSWORD,
-            enabled: process.env.ELASTICSEARCH_ENABLED === 'true',
-        },
     },
 };
 

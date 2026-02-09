@@ -12,7 +12,6 @@ export interface SystemHealth {
     database: 'ok' | 'error';
     redis: 'ok' | 'error';
     mqtt: 'ok' | 'error';
-    elasticsearch: 'ok' | 'error' | 'disabled';
     socketio: 'ok' | 'error';
 }
 
@@ -80,7 +79,6 @@ class MonitoringService {
             database: 'ok',
             redis: 'ok',
             mqtt: 'ok',
-            elasticsearch: config.logging.elasticsearch.enabled ? 'ok' : 'disabled',
             socketio: 'ok'
         };
 
@@ -114,22 +112,6 @@ class MonitoringService {
             health.mqtt = 'error';
         }
 
-        // 4. Check Elasticsearch
-        if (config.logging.elasticsearch.enabled) {
-            try {
-                const authHeader = config.logging.elasticsearch.username && config.logging.elasticsearch.password
-                    ? { Authorization: `Basic ${Buffer.from(`${config.logging.elasticsearch.username}:${config.logging.elasticsearch.password}`).toString('base64')}` }
-                    : {};
-
-                const response = await axios.get(`${config.logging.elasticsearch.node}/_cluster/health`, {
-                    headers: authHeader,
-                    timeout: 2000
-                });
-                if (response.status !== 200) throw new Error('ES cluster health failed');
-            } catch (err) {
-                health.elasticsearch = 'error';
-            }
-        }
 
         // 5. Check SocketIO Server
         try {
@@ -144,63 +126,6 @@ class MonitoringService {
     }
 
 
-    async searchLogs(query: string, level?: string, limit: number = 50) {
-        if (!config.logging.elasticsearch.enabled) {
-            return [];
-        }
-
-        try {
-            const authHeader = config.logging.elasticsearch.username && config.logging.elasticsearch.password
-                ? { Authorization: `Basic ${Buffer.from(`${config.logging.elasticsearch.username}:${config.logging.elasticsearch.password}`).toString('base64')}` }
-                : {};
-
-            const esNode = config.logging.elasticsearch.node.replace(/\/$/, '');
-            const indexPattern = 'srm-*';
-
-            // Construct ES Search query
-            const esQuery: any = {
-                size: limit,
-                sort: [{ "@timestamp": { order: "desc" } }],
-                query: {
-                    bool: {
-                        must: []
-                    }
-                }
-            };
-
-            if (query) {
-                esQuery.query.bool.must.push({
-                    multi_match: {
-                        query: query,
-                        fields: ["message", "fields.*"],
-                        lenient: true
-                    }
-                });
-            }
-
-            if (level) {
-                esQuery.query.bool.must.push({
-                    match: { severity: level }
-                });
-            }
-
-            const response = await axios.post(`${esNode}/${indexPattern}/_search`, esQuery, {
-                headers: authHeader,
-                timeout: 5000
-            });
-
-            return response.data.hits.hits.map((hit: any) => ({
-                timestamp: hit._source['@timestamp'] || hit._source.timestamp,
-                level: hit._source.severity || hit._source.level,
-                message: hit._source.message,
-                ...hit._source.fields,
-                _id: hit._id
-            }));
-        } catch (error) {
-            logger.error('Elasticsearch search failed', { error });
-            return [];
-        }
-    }
 
     async getStats(): Promise<SystemStats> {
         const defaultStats: SystemStats = {

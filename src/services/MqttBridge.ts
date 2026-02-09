@@ -84,12 +84,15 @@ export class MqttBridge {
     }
 
     private async handleMessage(topic: string, payload: string) {
+        const systemConfig = realtimeRegistry.getSystemConfig();
+
         // 🛡️ Global System Control
-        if (!realtimeRegistry.getSystemConfig().mqttEnabled) {
-            // If MQTT is disabled but bridge is still receiving messages, shut it down
-            this.shutdown();
+        if (!systemConfig.mqttEnabled) {
+            sysLogger.warn(`[MqttBridge] 🛑 MQTT is disabled in config. Ignoring message on ${topic}`);
             return;
         }
+
+        sysLogger.debug(`[MqttBridge] 📥 Processing: ${topic} | Payload: ${payload}`);
 
         const parts = topic.split('/');
         // parts = ['devices', 'DEVICE_ID', 'status' | 'sms']
@@ -99,6 +102,7 @@ export class MqttBridge {
         const type = parts[2];
 
         if (type === 'status') {
+            sysLogger.info(`[MqttBridge] 📱 Device status update: ${deviceId} -> ${payload}`);
             await this.handleStatusChange(deviceId, payload);
         } else if (type === 'sms' && parts[3] === 'new') {
             await this.handleNewSms(deviceId, payload);

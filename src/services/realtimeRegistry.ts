@@ -163,11 +163,6 @@ export class RealtimeRegistry {
                     ...(typeof row.config_value === 'string' ? JSON.parse(row.config_value) : row.config_value)
                 };
 
-                // Environment variable override for emergency high-scale situations
-                if (process.env.HIGH_SCALE_MODE === 'true') {
-                    newConfig.highScaleMode = true;
-                }
-
                 // Physically toggle Firebase listeners to save costs
                 if (newConfig.firebaseUniversalEnabled && !this.firebaseListenersActive) {
                     this.setupFirebaseListeners();
@@ -177,9 +172,15 @@ export class RealtimeRegistry {
 
                 // Dynamic MQTT Bridge Control
                 if (newConfig.mqttEnabled && !mqttBridge.isActive()) {
+                    logger.info('[RealtimeRegistry] 📡 Enabling MQTT Bridge based on config');
                     mqttBridge.init();
                 } else if (!newConfig.mqttEnabled && mqttBridge.isActive()) {
+                    logger.warn('[RealtimeRegistry] 🛑 Disabling MQTT Bridge based on config');
                     mqttBridge.shutdown();
+                }
+
+                if (JSON.stringify(newConfig) !== JSON.stringify(this.systemConfig)) {
+                    logger.debug('[RealtimeRegistry] System configuration updated', { newConfig });
                 }
 
                 this.systemConfig = newConfig;
