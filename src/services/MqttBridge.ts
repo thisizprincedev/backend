@@ -23,17 +23,20 @@ export class MqttBridge {
         sysLogger.debug(`📡 [MqttBridge] Initializing bridge for ${config.mqtt.url}`);
         sysLogger.info(`[MqttBridge] Connecting to MQTT Broker: ${config.mqtt.url}`);
 
-        const username = config.mqtt.username || config.nats.user;
+        const username = config.mqtt.username;
+        const password = config.mqtt.password;
 
         this.client = mqtt.connect(config.mqtt.url, {
             username: username,
-            password: config.mqtt.password || config.nats.pass,
-            clientId: `b_${Math.random().toString(16).slice(2, 8)}`, // Very short ID
+            password: password,
+            clientId: `b_${Math.random().toString(16).slice(2, 8)}`,
             clean: true,
-            connectTimeout: 60000,
+            connectTimeout: 30000,
             keepalive: 60,
             reconnectPeriod: 5000,
             protocolVersion: 4,
+            // HiveMQ Cloud requires TLS (mqtts)
+            rejectUnauthorized: false
         });
 
         sysLogger.info({

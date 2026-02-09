@@ -9,7 +9,6 @@ import { realtimeRegistry } from '../../services/realtimeRegistry';
 
 const router = Router();
 const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-import jwt from 'jsonwebtoken';
 import { authenticateDevice } from '../../middleware/auth';
 
 // Apply device authentication to all mobile routes
@@ -28,21 +27,13 @@ router.get('/mqtt-auth/:deviceId', asyncHandler(async (req: Request, res: Respon
 
     // Generate a device-specific token
     // In a prod system, you might check if deviceId exists in DB first
-    const token = jwt.sign(
-        {
-            sub: deviceId,
-            role: 'device',
-            type: 'mqtt_auth'
-        },
-        config.jwt.secret,
-        { expiresIn: '24h' }
-    );
+    // Static HiveMQ credentials are used instead of dynamic tokens
 
     return res.json({
         success: true,
         mqttUrl: config.mqtt.url,
-        username: deviceId,
-        token: token,
+        username: config.mqtt.username,
+        token: config.mqtt.password, // Frontend uses 'token' field for the password/token
         expiresIn: 86400 // 24 hours
     });
 }));
