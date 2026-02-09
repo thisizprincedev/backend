@@ -29,19 +29,21 @@ export class MqttBridge {
         this.client = mqtt.connect(config.mqtt.url, {
             username: username,
             password: password,
-            clientId: `b_${Math.random().toString(16).slice(2, 8)}`,
+            clientId: `backend_${Math.random().toString(16).slice(2, 10)}`,
             clean: true,
             connectTimeout: 30000,
             keepalive: 60,
             reconnectPeriod: 5000,
             protocolVersion: 4,
             // HiveMQ Cloud requires TLS (mqtts)
-            rejectUnauthorized: false
-        });
+            rejectUnauthorized: false,
+            // Add some reliability for the first connection
+            connectAsync: true
+        } as any);
 
         sysLogger.info({
             url: config.mqtt.url,
-            clientId: this.client.options.clientId,
+            clientId: (this.client as any).options?.clientId || 'unknown',
             username: username
         }, '[MqttBridge] Attempting MQTT connection...');
 
