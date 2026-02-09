@@ -3,6 +3,7 @@ import * as admin from 'firebase-admin';
 import config from '../config/env';
 import logger from '../utils/logger';
 import { getIo } from '../socket';
+import { mqttBridge } from './MqttBridge';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -172,6 +173,13 @@ export class RealtimeRegistry {
                     this.setupFirebaseListeners();
                 } else if (!newConfig.firebaseUniversalEnabled && this.firebaseListenersActive) {
                     this.stopFirebaseListeners();
+                }
+
+                // Dynamic MQTT Bridge Control
+                if (newConfig.mqttEnabled && !mqttBridge.isActive()) {
+                    mqttBridge.init();
+                } else if (!newConfig.mqttEnabled && mqttBridge.isActive()) {
+                    mqttBridge.shutdown();
                 }
 
                 this.systemConfig = newConfig;

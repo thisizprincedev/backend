@@ -37,8 +37,6 @@ export class MqttBridge {
             protocolVersion: 4,
             // HiveMQ Cloud requires TLS (mqtts)
             rejectUnauthorized: false,
-            // Add some reliability for the first connection
-            connectAsync: true
         } as any);
 
         sysLogger.info({
@@ -78,9 +76,18 @@ export class MqttBridge {
         });
     }
 
+    /**
+     * Check if the MQTT bridge is currently active (client exists).
+     */
+    isActive(): boolean {
+        return !!this.client;
+    }
+
     private async handleMessage(topic: string, payload: string) {
         // 🛡️ Global System Control
         if (!realtimeRegistry.getSystemConfig().mqttEnabled) {
+            // If MQTT is disabled but bridge is still receiving messages, shut it down
+            this.shutdown();
             return;
         }
 
@@ -209,9 +216,10 @@ export class MqttBridge {
 
     shutdown() {
         if (this.client) {
+            const clientId = (this.client as any).options?.clientId;
             this.client.end(true);
             this.client = null;
-            sysLogger.info('[MqttBridge] Bridge shut down.');
+            sysLogger.info({ clientId }, '[MqttBridge] Bridge shut down.');
         }
     }
 }

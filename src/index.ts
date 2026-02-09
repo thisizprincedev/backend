@@ -51,7 +51,7 @@ app.set('trust proxy', 1);
     try {
         // await natsService.init(); // Legacy NATS tracing disabled for HiveMQ migration
         await realtimeRegistry.init();
-        mqttBridge.init();
+        // mqttBridge.init(); // Now managed dynamically by RealtimeRegistry
     } catch (err) {
         logger.error(err, 'Service initialization failed');
     }
