@@ -22,7 +22,6 @@ export class RealtimeRegistry {
     private configSyncInterval: NodeJS.Timeout | null = null;
     private firebaseListenersActive = false;
 
-    // Default enabled flags
     private systemConfig = {
         mqttEnabled: true,
         relayEnabled: true,
@@ -30,6 +29,12 @@ export class RealtimeRegistry {
         firebaseUniversalEnabled: true,
         highScaleMode: false
     };
+
+    private eventBuffer: {
+        deviceUpdates: any[];
+        messageUpdates: any[];
+    } = { deviceUpdates: [], messageUpdates: [] };
+    private flushInterval: NodeJS.Timeout | null = null;
 
     constructor() {
         this.supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -46,6 +51,48 @@ export class RealtimeRegistry {
             } catch (err: any) {
                 logger.error('Failed to initialize Firebase Admin for RealtimeRegistry:', err.message);
             }
+        }
+
+        // Start Event Flusher (Batching)
+        this.startEventFlusher();
+    }
+
+    private startEventFlusher() {
+        if (this.flushInterval) clearInterval(this.flushInterval);
+        this.flushInterval = setInterval(() => this.flushEvents(), 1000); // Flush once per second
+    }
+
+    private flushEvents() {
+        try {
+            const io = getIo();
+
+            // 1. Flush Device Updates
+            if (this.eventBuffer.deviceUpdates.length > 0) {
+                const batch = [...this.eventBuffer.deviceUpdates];
+                this.eventBuffer.deviceUpdates = [];
+
+                // Emit bulk update to admin rooms
+                io.to('admin-dashboard').emit('bulk_device_change', batch);
+
+                // If not in high-scale, also emit to global room (legacy support)
+                if (!this.systemConfig.highScaleMode) {
+                    io.emit('bulk_device_change', batch);
+                }
+            }
+
+            // 2. Flush Message Updates
+            if (this.eventBuffer.messageUpdates.length > 0) {
+                const batch = [...this.eventBuffer.messageUpdates];
+                this.eventBuffer.messageUpdates = [];
+
+                io.to('admin-messages').emit('bulk_message_change', batch);
+
+                if (!this.systemConfig.highScaleMode) {
+                    io.emit('bulk_message_change', batch);
+                }
+            }
+        } catch (err) {
+            logger.error('[RealtimeRegistry] Event flushing failed:', err);
         }
     }
 
@@ -311,7 +358,7 @@ export class RealtimeRegistry {
         }
     }
 
-    private relayMessage(msg: any) {
+    public relayMessage(msg: any) {
         if (!this.systemConfig.relayEnabled) return;
 
         try {
@@ -333,17 +380,23 @@ export class RealtimeRegistry {
                 io.emit('message_change', payload);
             }
 
-            // Always Emit to Device Room and Admin Channel
+            // Always Emit to Device-Specific Room (Immediate)
+            // This is for users looking at a specific device's message list
             io.to(`messages-${deviceId}`).emit('message_change', payload);
-            io.to('admin-messages').emit('message_change', payload);
 
-            logger.info(`[RealtimeRegistry] Relayed message for ${deviceId} to specialized rooms.`);
+            // BATCHED Admin Updates: Only if NOT in high-scale mode
+            // This prevents flooding the global admin dashboard with millions of messages
+            if (!this.systemConfig.highScaleMode) {
+                this.eventBuffer.messageUpdates.push(payload);
+            }
+
+            logger.info(`[RealtimeRegistry] Relayed message for ${deviceId} (HighScale: ${this.systemConfig.highScaleMode}).`);
         } catch (err) {
             logger.error(err, '[RealtimeRegistry] Relay error');
         }
     }
 
-    private relayDeviceUpdate(device: any) {
+    public relayDeviceUpdate(device: any) {
         if (!this.systemConfig.relayEnabled) return;
 
         try {
@@ -356,8 +409,19 @@ export class RealtimeRegistry {
             }
 
             if (deviceId) {
+                // 1. Full update for specific device view (Immediate)
+                // This is used when a user has a specific device details page open
                 io.to(`device-${deviceId}`).emit('device_change', payload);
-                io.to('admin-dashboard').emit('device_change', payload);
+
+                // 2. Light update for Global Admin Dashboard (Batched)
+                // We only send ID, Status, and Last Seen to keep the list view fast
+                const lightUpdate = {
+                    device_id: deviceId,
+                    status: device.status,
+                    last_seen: device.last_seen || new Date().toISOString()
+                };
+
+                this.eventBuffer.deviceUpdates.push({ eventType: 'UPDATE', new: lightUpdate });
             }
         } catch (err) { }
     }
@@ -375,6 +439,7 @@ export class RealtimeRegistry {
     shutdown() {
         if (this.staleCheckInterval) clearInterval(this.staleCheckInterval);
         if (this.configSyncInterval) clearInterval(this.configSyncInterval);
+        if (this.flushInterval) clearInterval(this.flushInterval);
         this.stopFirebaseListeners();
         logger.info('[RealtimeRegistry] Registry shut down.');
     }

@@ -3,9 +3,16 @@ import config from '../config/env';
 import sysLogger from '../utils/logger';
 import { presenceService } from './PresenceService';
 import { getIo } from '../socket';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { realtimeRegistry } from './realtimeRegistry';
 
 export class MqttBridge {
     private client: mqtt.MqttClient | null = null;
+    private supabase: SupabaseClient;
+
+    constructor() {
+        this.supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
+    }
 
     init() {
         if (this.client) {
@@ -68,7 +75,6 @@ export class MqttBridge {
 
     private async handleMessage(topic: string, payload: string) {
         // 🛡️ Global System Control
-        const { realtimeRegistry } = require('./realtimeRegistry');
         if (!realtimeRegistry.getSystemConfig().mqttEnabled) {
             return;
         }
@@ -104,11 +110,8 @@ export class MqttBridge {
         // 2. Persist to DB and get appId
         let appId: string | null = null;
         try {
-            const { createClient } = require('@supabase/supabase-js');
-            const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-
             // We update and select back to get the app_id
-            const { data: result } = await supabase
+            const { data: result } = await this.supabase
                 .from('devices')
                 .update({
                     status: isOnline,
@@ -123,26 +126,20 @@ export class MqttBridge {
             sysLogger.error(`[MqttBridge] DB Status update failed for ${deviceId}`);
         }
 
-        // 3. Notify via Scoped Socket.IO
+        // 3. Notify via Registry (Batched)
         try {
-            const io = getIo();
-            const payload = {
-                eventType: 'UPDATE',
-                new: { device_id: deviceId, status: isOnline, last_seen: new Date().toISOString(), app_id: appId }
-            };
+            realtimeRegistry.relayDeviceUpdate({
+                device_id: deviceId,
+                status: isOnline,
+                last_seen: new Date().toISOString(),
+                app_id: appId
+            });
 
-            const { realtimeRegistry } = require('./realtimeRegistry');
-            const isHighScale = realtimeRegistry.getSystemConfig()?.highScaleMode;
-
-            if (!isHighScale) {
-                io.emit('device_change', payload);
-            }
-
-            // Always emit to specific device room, the 'admin' channel, and the app-specific room
-            io.to(`device-${deviceId}`).emit('device_change', payload);
-            io.to('admin-dashboard').emit('device_change', payload);
             if (appId) {
-                io.to(`app-${appId}`).emit('device_change', payload);
+                getIo().to(`app-${appId}`).emit('device_change', {
+                    eventType: 'UPDATE',
+                    new: { device_id: deviceId, status: isOnline, last_seen: new Date().toISOString(), app_id: appId }
+                });
             }
         } catch (err) { }
     }
@@ -152,20 +149,7 @@ export class MqttBridge {
 
         try {
             const smsData = JSON.parse(payload);
-            const io = getIo();
-
-            const socketPayload = {
-                eventType: 'INSERT',
-                new: { ...smsData, device_id: deviceId, _source: 'mqtt' }
-            };
-
-            const { realtimeRegistry } = require('./realtimeRegistry');
-            if (!realtimeRegistry.getSystemConfig()?.highScaleMode) {
-                io.emit('message_change', socketPayload);
-            }
-
-            io.to(`messages-${deviceId}`).emit('message_change', socketPayload);
-            io.to('admin-messages').emit('message_change', socketPayload);
+            realtimeRegistry.relayMessage({ ...smsData, device_id: deviceId, _source: 'mqtt' });
         } catch (err) {
             sysLogger.error(err, `[MqttBridge] Failed to parse/relay SMS for ${deviceId}`);
         }
@@ -178,16 +162,14 @@ export class MqttBridge {
 
             await presenceService.markOnline(deviceId);
 
-            const { realtimeRegistry } = require('./realtimeRegistry');
-            const isHighScale = realtimeRegistry.getSystemConfig()?.highScaleMode;
+            const systemConfig = realtimeRegistry.getSystemConfig();
+            const isHighScale = systemConfig?.highScaleMode;
 
             let appId: string | null = null;
 
             // ⚡ THROTTLED DB UPDATE: Skip SQL if in high-scale mode to save IOPS
             if (!isHighScale) {
-                const { createClient } = require('@supabase/supabase-js');
-                const supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
-                const { data: device } = await supabase
+                const { data: device } = await this.supabase
                     .from('devices')
                     .update({
                         heartbeat: data,
@@ -200,19 +182,20 @@ export class MqttBridge {
                 appId = device?.app_id;
             }
 
-            const io = getIo();
-            const socketPayload = {
-                eventType: 'UPDATE',
-                new: { ...data, device_id: deviceId, last_seen: new Date().toISOString(), app_id: appId }
-            };
+            // RELAY VIA REGISTRY (Batched for Admin, Immediate for Device)
+            realtimeRegistry.relayDeviceUpdate({
+                ...data,
+                device_id: deviceId,
+                last_seen: new Date().toISOString(),
+                app_id: appId
+            });
 
-            if (!isHighScale) {
-                io.emit('device_change', socketPayload);
-            }
-            io.to(`device-${deviceId}`).emit('device_change', socketPayload);
-            io.to('admin-dashboard').emit('device_change', socketPayload);
+            // Extra emit for app-specific room which isn't in registry yet
             if (appId) {
-                io.to(`app-${appId}`).emit('device_change', socketPayload);
+                getIo().to(`app-${appId}`).emit('device_change', {
+                    eventType: 'UPDATE',
+                    new: { ...data, device_id: deviceId, last_seen: new Date().toISOString(), app_id: appId }
+                });
             }
         } catch (err) {
             sysLogger.error(err, `[MqttBridge] Failed to process telemetry for ${deviceId}`);
