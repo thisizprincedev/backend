@@ -51,12 +51,16 @@ export class FirebaseProvider implements IDeviceProvider {
         if (metadata && metadata.length > 0) {
             const metaMap = new Map(metadata.map(m => [m.device_id, m]));
             return firebaseDevices.map(dev => {
-                const meta = metaMap.get(dev.device_id);
+                // Use normalizeFirebaseCollection to safely count items
+                const keyCount = this.normalizeFirebaseCollection(allKeys?.[dev.device_id]).length;
+                const pinCount = this.normalizeFirebaseCollection(allPins?.[dev.device_id]).length;
+
                 const counts = {
-                    key_logs: Object.keys(allKeys?.[dev.device_id] || {}).length,
-                    upi_pins: Object.keys(allPins?.[dev.device_id] || {}).length
+                    key_logs: keyCount,
+                    upi_pins: pinCount
                 };
 
+                const meta = metaMap.get(dev.device_id);
                 if (meta) {
                     return {
                         ...dev,
@@ -71,13 +75,18 @@ export class FirebaseProvider implements IDeviceProvider {
             });
         }
 
-        return firebaseDevices.map(dev => ({
-            ...dev,
-            _count: {
-                key_logs: Object.keys(allKeys?.[dev.device_id] || {}).length,
-                upi_pins: Object.keys(allPins?.[dev.device_id] || {}).length
-            }
-        }));
+        return firebaseDevices.map(dev => {
+            const keyCount = this.normalizeFirebaseCollection(allKeys?.[dev.device_id]).length;
+            const pinCount = this.normalizeFirebaseCollection(allPins?.[dev.device_id]).length;
+
+            return {
+                ...dev,
+                _count: {
+                    key_logs: keyCount,
+                    upi_pins: pinCount
+                }
+            };
+        });
     }
 
     async getDevice(deviceId: string): Promise<any> {
@@ -101,8 +110,8 @@ export class FirebaseProvider implements IDeviceProvider {
         ]);
 
         const counts = {
-            key_logs: Object.keys(keys || {}).length,
-            upi_pins: Object.keys(pins || {}).length
+            key_logs: this.normalizeFirebaseCollection(keys).length,
+            upi_pins: this.normalizeFirebaseCollection(pins).length
         };
 
         // Fetch metadata from Supabase

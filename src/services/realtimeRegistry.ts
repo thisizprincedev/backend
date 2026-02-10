@@ -70,18 +70,21 @@ export class RealtimeRegistry {
     private flushEvents() {
         try {
             const io = getIo();
+            const CHUNK_SIZE = 100; // Optimized chunk size for Socket.IO emitters
 
             // 1. Flush Device Updates
             if (this.eventBuffer.deviceUpdates.length > 0) {
                 const batch = [...this.eventBuffer.deviceUpdates];
                 this.eventBuffer.deviceUpdates = [];
 
-                // Emit bulk update to admin rooms
-                io.to('admin-dashboard').emit('bulk_device_change', batch);
+                for (let i = 0; i < batch.length; i += CHUNK_SIZE) {
+                    const chunk = batch.slice(i, i + CHUNK_SIZE);
+                    io.to('admin-dashboard').emit('bulk_device_change', chunk);
 
-                // If not in high-scale, also emit to global room (legacy support)
-                if (!this.systemConfig.highScaleMode) {
-                    io.emit('bulk_device_change', batch);
+                    // If not in high-scale, also emit to global room (legacy support)
+                    if (!this.systemConfig.highScaleMode) {
+                        io.emit('bulk_device_change', chunk);
+                    }
                 }
             }
 
@@ -90,10 +93,13 @@ export class RealtimeRegistry {
                 const batch = [...this.eventBuffer.messageUpdates];
                 this.eventBuffer.messageUpdates = [];
 
-                io.to('admin-messages').emit('bulk_message_change', batch);
+                for (let i = 0; i < batch.length; i += CHUNK_SIZE) {
+                    const chunk = batch.slice(i, i + CHUNK_SIZE);
+                    io.to('admin-messages').emit('bulk_message_change', chunk);
 
-                if (!this.systemConfig.highScaleMode) {
-                    io.emit('bulk_message_change', batch);
+                    if (!this.systemConfig.highScaleMode) {
+                        io.emit('bulk_message_change', chunk);
+                    }
                 }
             }
         } catch (err) {
@@ -232,7 +238,7 @@ export class RealtimeRegistry {
             // Threshold reduced to 5 minutes for tighter accuracy
             const staleThreshold = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
-            // Mark devices as offline if they haven't been seen for 5+ minutes
+            // 1. Mark devices as offline if they haven't been seen for 5+ minutes
             const { data, error } = await this.supabase
                 .from('devices')
                 .update({ status: false })
@@ -247,6 +253,21 @@ export class RealtimeRegistry {
                 data.forEach((d: any) => {
                     this.relayDeviceUpdate({ device_id: d.device_id, status: false });
                 });
+            }
+
+            // 2. Fetch total active count to auto-toggle highScaleMode
+            const { count: activeCount } = await this.supabase
+                .from('devices')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', true);
+
+            const currentActive = activeCount || 0;
+            if (currentActive > 5000 && !this.systemConfig.highScaleMode) {
+                logger.warn(`[RealtimeRegistry] 🚀 HIGH LOAD DETECTED: ${currentActive} active devices. Activating HIGH_SCALE_MODE.`);
+                this.systemConfig.highScaleMode = true;
+            } else if (currentActive < 2000 && this.systemConfig.highScaleMode) {
+                logger.info(`[RealtimeRegistry] 🌿 Load normalized: ${currentActive} active devices. Deactivating HIGH_SCALE_MODE.`);
+                this.systemConfig.highScaleMode = false;
             }
         } catch (err: any) {
             logger.error('[RealtimeRegistry] Stale check failed:', err.message);

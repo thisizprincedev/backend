@@ -3,13 +3,13 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 
 import config from './config/env';
 import logger from './utils/logger';
 import apiRoutes from './routes';
 import { errorHandler } from './middleware/errorHandler';
+import { registrationLimiter } from './middleware/rateLimiter';
 import { initSocket } from './socket';
 import { metricsMiddleware, metricsEndpoint } from './middleware/metrics.middleware';
 
@@ -79,17 +79,7 @@ app.get('/health', (_req: Request, res: Response) => {
     });
 });
 
-// Rate Limiting for Device Registration (Anti-spam)
-const registrationLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 10, // Limit each IP to 10 registrations per hour
-    message: { error: 'Too many registration attempts from this IP, please try again later' },
-    standardHeaders: true,
-    legacyHeaders: false,
-    skipSuccessfulRequests: false,
-    // Skip rate limiting if it's an authenticated admin
-    skip: (req) => req.headers.authorization !== undefined
-});
+// Rate Limiting for Device Registration is now managed via registrationLimiter middleware
 
 // Logging (using morgan to bridge to Winston)
 app.use(morgan('combined', {

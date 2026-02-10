@@ -1,31 +1,60 @@
-import rateLimit from 'express-rate-limit';
+import { RateLimiterRedis } from 'rate-limiter-flexible';
+import redis from '../lib/redis';
 import logger from '../utils/logger';
+import { Request, Response, NextFunction } from 'express';
 
-export const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 3000, // Increased for admin dashboard and high-scale device sync
-    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-    message: {
-        error: 'Too many requests, please try again later.',
-    },
-    skip: (req) => {
-        // Skip rate limiting for trusted internal notifications (from ioserver)
-        const apiKey = req.body?.apiKey;
-        return !!(apiKey && apiKey === process.env.EXTERNAL_NOTIFY_API_KEY);
-    },
-    handler: (req, res, _next, options) => {
-        logger.warn({ ip: req.ip, method: req.method, url: req.url }, 'Rate limit exceeded');
-        res.status(options.statusCode).send(options.message);
-    },
-});
+// Generic Rate Limiter Factory
+const createRedisLimiter = (keyPrefix: string, points: number, duration: number) => {
+    return new RateLimiterRedis({
+        storeClient: redis,
+        keyPrefix: keyPrefix,
+        points: points,
+        duration: duration,
+        blockDuration: 0, // Do not block if points consumed
+    });
+};
 
-export const authLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 20, // Limit each IP to 20 login attempts per hour
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: {
-        error: 'Too many login attempts, please try again in an hour.',
-    },
-});
+const apiRateLimiter = createRedisLimiter('rl_api', 3000, 15 * 60);
+const authRateLimiter = createRedisLimiter('rl_auth', 20, 60 * 60);
+const regRateLimiter = createRedisLimiter('rl_reg', 10, 60 * 60);
+
+export const apiLimiter = async (req: Request, res: Response, next: NextFunction) => {
+    // Skip rate limiting for trusted internal notifications (from ioserver)
+    const apiKey = req.body?.apiKey;
+    if (apiKey && apiKey === process.env.EXTERNAL_NOTIFY_API_KEY) {
+        return next();
+    }
+
+    try {
+        await apiRateLimiter.consume(req.ip!);
+        next();
+    } catch (rejRes) {
+        logger.warn({ ip: req.ip, method: req.method, url: req.url }, 'API Rate limit exceeded');
+        res.status(429).json({ error: 'Too many requests, please try again later.' });
+    }
+};
+
+export const authLimiter = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        await authRateLimiter.consume(req.ip!);
+        next();
+    } catch (rejRes) {
+        logger.warn({ ip: req.ip, method: req.method, url: req.url }, 'Auth Rate limit exceeded');
+        res.status(429).json({ error: 'Too many login attempts, please try again in an hour.' });
+    }
+};
+
+export const registrationLimiter = async (req: Request, res: Response, next: NextFunction) => {
+    // Skip rate limiting if it's an authenticated admin
+    if (req.headers.authorization !== undefined) {
+        return next();
+    }
+
+    try {
+        await regRateLimiter.consume(req.ip!);
+        next();
+    } catch (rejRes) {
+        logger.warn({ ip: req.ip, method: req.method, url: req.url }, 'Registration Rate limit exceeded');
+        res.status(429).json({ error: 'Too many registration attempts from this IP, please try again later' });
+    }
+};

@@ -317,49 +317,85 @@ export async function triggerGitHubBuild(appId: string, userId: string, isAdmin:
 
     const globalProviderConfig = globalProviderRow?.config_value as any;
 
-    if (globalProviderConfig) {
-        const baseConfig: any = {};
-        if (app.db_provider_type === 'SUPABASE' && globalProviderConfig.supabase) {
-            baseConfig.supabase_url = globalProviderConfig.supabase.url;
-            baseConfig.supabase_anon_key = globalProviderConfig.supabase.anonKey;
+    // Fetch Universal Firebase Config
+    const { data: universalFirebaseRow } = await supabase
+        .from('global_config')
+        .select('config_value')
+        .eq('config_key', 'app_builder_universal_firebase_config')
+        .maybeSingle();
+    const universalFirebase = universalFirebaseRow?.config_value as any;
 
-            // Add nested structure for ProviderFactory compatibility
-            if (!decryptedConfig.supabase) decryptedConfig.supabase = {};
-            decryptedConfig.supabase.url = decryptedConfig.supabase.url || globalProviderConfig.supabase.url;
-            decryptedConfig.supabase.anonKey = decryptedConfig.supabase.anonKey || globalProviderConfig.supabase.anonKey;
-        } else if (app.db_provider_type === 'FIREBASE' && globalProviderConfig.firebase) {
-            baseConfig.firebase_database_url = globalProviderConfig.firebase.databaseUrl;
-            baseConfig.firebase_api_key = globalProviderConfig.firebase.apiKey;
-            baseConfig.firebase_app_id = globalProviderConfig.firebase.appId;
-            baseConfig.firebase_project_id = globalProviderConfig.firebase.projectId;
+    // Resolve final config based on override toggles
+    const resolvedConfig: any = {
+        mqtt_enabled: decryptedConfig.mqtt_enabled ?? true,
+        primary_realtime: decryptedConfig.primary_realtime ?? true,
+    };
 
-            // Add nested structure for ProviderFactory compatibility
-            if (!decryptedConfig.firebase) decryptedConfig.firebase = {};
-            decryptedConfig.firebase.databaseURL = decryptedConfig.firebase.databaseURL || globalProviderConfig.firebase.databaseUrl;
-            decryptedConfig.firebase.apiKey = decryptedConfig.firebase.apiKey || globalProviderConfig.firebase.apiKey;
-            decryptedConfig.firebase.appId = decryptedConfig.firebase.appId || globalProviderConfig.firebase.appId;
-            decryptedConfig.firebase.projectId = decryptedConfig.firebase.projectId || globalProviderConfig.firebase.projectId;
-        } else if (app.db_provider_type === 'SOCKET_IO' && globalProviderConfig.socketio) {
-            baseConfig.socketio_server_url = globalProviderConfig.socketio.serverUrl;
-
-            // Add nested structure for ProviderFactory compatibility
-            if (!decryptedConfig.socketio) decryptedConfig.socketio = {};
-            decryptedConfig.socketio.serverUrl = decryptedConfig.socketio.serverUrl || globalProviderConfig.socketio.serverUrl;
+    // DB Provider resolution
+    if (app.db_provider_type === 'SUPABASE') {
+        if (decryptedConfig.use_supabase_override) {
+            resolvedConfig.supabase_url = decryptedConfig.supabase_url || '';
+            resolvedConfig.supabase_anon_key = decryptedConfig.supabase_anon_key || '';
+            resolvedConfig.mobile_api_access_key = decryptedConfig.mobile_api_access_key || '';
+        } else if (globalProviderConfig?.supabase) {
+            resolvedConfig.supabase_url = globalProviderConfig.supabase.url || '';
+            resolvedConfig.supabase_anon_key = globalProviderConfig.supabase.anonKey || '';
+            resolvedConfig.mobile_api_access_key = globalProviderConfig.supabase.mobileApiAccessKey || '';
         }
-        decryptedConfig = { ...baseConfig, ...decryptedConfig };
-
-        // PERSIST the resolved config back to the app so ProviderFactory can use it
-        try {
-            const newEncryptedConfig = encryptionService.encrypt(decryptedConfig);
-            await supabase
-                .from('app_builder_apps')
-                .update({ encrypted_config: newEncryptedConfig })
-                .eq('id', appId);
-            logger.info(`Updated encrypted_config for app ${appId} with resolved provider details.`);
-        } catch (saveErr: any) {
-            logger.error(`Failed to save resolved config for app ${appId}:`, saveErr.message);
+    } else if (app.db_provider_type === 'FIREBASE') {
+        if (decryptedConfig.use_firebase_override) {
+            resolvedConfig.firebase_database_url = decryptedConfig.firebase_database_url || '';
+            resolvedConfig.firebase_api_key = decryptedConfig.firebase_api_key || '';
+            resolvedConfig.firebase_app_id = decryptedConfig.firebase_app_id || '';
+            resolvedConfig.firebase_project_id = decryptedConfig.firebase_project_id || '';
+            resolvedConfig.mobile_api_access_key = decryptedConfig.mobile_api_access_key || '';
+        } else if (globalProviderConfig?.firebase) {
+            resolvedConfig.firebase_database_url = globalProviderConfig.firebase.databaseUrl || '';
+            resolvedConfig.firebase_api_key = globalProviderConfig.firebase.apiKey || '';
+            resolvedConfig.firebase_app_id = globalProviderConfig.firebase.appId || '';
+            resolvedConfig.firebase_project_id = globalProviderConfig.firebase.projectId || '';
+            resolvedConfig.mobile_api_access_key = globalProviderConfig.firebase.mobileApiAccessKey || '';
         }
     }
+    else if (app.db_provider_type === 'SOCKET_IO') {
+        if (decryptedConfig.use_socketio_override) {
+            resolvedConfig.socketio_server_url = decryptedConfig.socketio_server_url || '';
+            resolvedConfig.mobile_api_access_key = decryptedConfig.mobile_api_access_key || '';
+        } else if (globalProviderConfig?.socketio) {
+            resolvedConfig.socketio_server_url = globalProviderConfig.socketio.serverUrl || '';
+            resolvedConfig.mobile_api_access_key = globalProviderConfig.socketio.mobileApiAccessKey || '';
+        }
+    } else if (app.db_provider_type === 'REST_API') {
+        if (decryptedConfig.use_rest_api_override) {
+            resolvedConfig.rest_api_url = decryptedConfig.rest_api_url || decryptedConfig.backend_url || '';
+            resolvedConfig.mobile_api_access_key = decryptedConfig.mobile_api_access_key || '';
+        } else if (globalProviderConfig?.rest_api) {
+            resolvedConfig.rest_api_url = globalProviderConfig.rest_api.restApiUrl || globalProviderConfig.rest_api.baseUrl || '';
+            resolvedConfig.mobile_api_access_key = globalProviderConfig.rest_api.mobileApiAccessKey || '';
+        }
+    }
+
+    // MQTT resolution
+    if (decryptedConfig.use_mqtt_override) {
+        resolvedConfig.mqtt_url = decryptedConfig.mqtt_url || '';
+        resolvedConfig.mqtt_username = decryptedConfig.mqtt_username || '';
+        resolvedConfig.mqtt_password = decryptedConfig.mqtt_password || '';
+    } else if (globalProviderConfig?.mqtt) {
+        resolvedConfig.mqtt_url = globalProviderConfig.mqtt.url || '';
+        resolvedConfig.mqtt_username = globalProviderConfig.mqtt.username || '';
+        resolvedConfig.mqtt_password = globalProviderConfig.mqtt.password || '';
+    }
+
+    // Universal Realtime
+    if (app.universal_realtime && universalFirebase) {
+        resolvedConfig.universal_firebase_database_url = universalFirebase.databaseUrl || '';
+        resolvedConfig.universal_firebase_api_key = universalFirebase.apiKey || '';
+        resolvedConfig.universal_firebase_app_id = universalFirebase.appId || '';
+        resolvedConfig.universal_firebase_project_id = universalFirebase.projectId || '';
+    }
+
+    // No longer persisting resolved config back to DB here. 
+    // This keeps the app-specific config lean (only overrides) while providing full details to the build.
 
     // Trigger GitHub Workflow
     const axios = require('axios');
@@ -367,22 +403,49 @@ export async function triggerGitHubBuild(appId: string, userId: string, isAdmin:
     const ref = githubConfig.ref || 'main';
     const url = `https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/actions/workflows/${workflowName}/dispatches`;
 
+    const buildId = `${appId.slice(0, 8)}-${Date.now()}`;
     const inputs: any = {
+        app_id: appId,
+        app_name: app.app_name,
+        package_name: app.package_name,
         version: app.version,
         db_provider_type: app.db_provider_type,
+        primary_realtime: String(resolvedConfig.primary_realtime ?? true),
         universal_realtime: String(app.universal_realtime || false),
+        mqtt_enabled: String(resolvedConfig.mqtt_enabled ?? true),
+        build_id: buildId,
+        mobile_api_access_key: resolvedConfig.mobile_api_access_key || '',
     };
 
+    // Add Provider-Specific Configuration
     if (app.db_provider_type === 'SUPABASE') {
-        inputs.supabase_url = decryptedConfig.supabase_url || '';
-        inputs.supabase_anon_key = decryptedConfig.supabase_anon_key || '';
+        inputs.supabase_url = resolvedConfig.supabase_url || '';
+        inputs.supabase_anon_key = resolvedConfig.supabase_anon_key || '';
     } else if (app.db_provider_type === 'FIREBASE') {
-        inputs.firebase_database_url = decryptedConfig.firebase_database_url || '';
-        inputs.firebase_api_key = decryptedConfig.firebase_api_key || '';
-        inputs.firebase_app_id = decryptedConfig.firebase_app_id || '';
-        inputs.firebase_project_id = decryptedConfig.firebase_project_id || '';
+        inputs.firebase_database_url = resolvedConfig.firebase_database_url || '';
+        inputs.firebase_api_key = resolvedConfig.firebase_api_key || '';
+        inputs.firebase_app_id = resolvedConfig.firebase_app_id || '';
+        inputs.firebase_project_id = resolvedConfig.firebase_project_id || '';
     } else if (app.db_provider_type === 'SOCKET_IO') {
-        inputs.socketio_server_url = decryptedConfig.socketio_server_url || '';
+        inputs.socketio_server_url = resolvedConfig.socketio_server_url || '';
+        inputs.rest_api_url = resolvedConfig.rest_api_url || '';
+    } else if (app.db_provider_type === 'REST_API') {
+        inputs.rest_api_url = resolvedConfig.rest_api_url || '';
+    }
+
+    // Add MQTT Configuration if enabled
+    if (resolvedConfig.mqtt_enabled !== false) {
+        inputs.mqtt_url = resolvedConfig.mqtt_url || '';
+        inputs.mqtt_username = resolvedConfig.mqtt_username || '';
+        inputs.mqtt_password = resolvedConfig.mqtt_password || '';
+    }
+
+    // Add Universal Realtime Configuration if enabled
+    if (app.universal_realtime) {
+        inputs.universal_firebase_database_url = resolvedConfig.universal_firebase_database_url || '';
+        inputs.universal_firebase_api_key = resolvedConfig.universal_firebase_api_key || '';
+        inputs.universal_firebase_app_id = resolvedConfig.universal_firebase_app_id || '';
+        inputs.universal_firebase_project_id = resolvedConfig.universal_firebase_project_id || '';
     }
 
     await axios.post(url, { ref: ref, inputs: inputs }, {

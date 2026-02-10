@@ -188,7 +188,9 @@ router.get('/global-config', ...adminOnly, asyncHandler(async (_req: Request, re
         config: globalConfigData?.config_value || {
             supabase: { url: "", anonKey: "" },
             firebase: { databaseUrl: "", apiKey: "", appId: "", projectId: "" },
-            socketio: { serverUrl: "" },
+            socketio: { serverUrl: "", mobileApiAccessKey: "" },
+            rest_api: { restApiUrl: "", mobileApiAccessKey: "" },
+            mqtt: { url: "", username: "", password: "" },
         }
     });
 }));
