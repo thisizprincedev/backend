@@ -1,0 +1,18 @@
+--- Starting Backend API Trigger Test with Log Retrieval ---
+Generated Token for User: 12
+1. Sending build request to: http://localhost:3000/api/v1/app-builder/apps/c70a6a2e-6278-4375-ab67-dfa1dfe80af6/build
+SUCCESS: Build triggered: 200 { success: true, message: 'Build triggered successfully' }
+
+2. Fetching system logs from: http://localhost:3000/api/v1/app-builder/apps/system-logs
+SUCCESS: Fetched logs. Recent entries:
+[2026-02-11T13:54:37.174Z] info: ::1 - - [11/Feb/2026:13:54:37 +0000] "POST /api/v1/app-builder/apps/c70a6a2e-6278-4375-ab67-dfa1dfe80af6/build HTTP/1.1" 200 57 "-" "axios/1.13.4" 
+[2026-02-11T13:54:36.931Z] info: Fetched workflow runs 
+[2026-02-11T13:54:31.381Z] info: GitHub dispatch successful 
+   Status: 204
+[2026-02-11T13:54:29.598Z] info: Sending dispatch to GitHub 
+[2026-02-11T13:54:29.055Z] info: GitHub config resolved 
+[2026-02-11T13:54:28.496Z] info: Starting triggerGitHubBuild (appId: c70a6a2e-6278-4375-ab67-dfa1dfe80af6)
+[2026-02-11T13:54:25.201Z] info: [RealtimeRegistry] Relayed message for 993c31a1983c33a1 (Event: INSERT, App: none). 
+[2026-02-11T13:54:25.200Z] info: [RealtimeRegistry] Firebase SMS detected from 993c31a1983c33a1 (event: child_added) 
+[2026-02-11T13:54:25.198Z] info: [RealtimeRegistry] Firebase SMS child_added signal for device: 993c31a1983c33a1 
+[2026-02-11T13:54:23.507Z] info: [MqttBridge] 📱 Device status update: 993c31a1983c33a1 -> offline 

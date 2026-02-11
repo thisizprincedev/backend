@@ -12,14 +12,14 @@ const router = Router();
 
 const adminOnly = [authenticate, requireRole(['admin'])];
 
-router.get('/github-config', authenticate, asyncHandler(async (req: Request, res: Response) => {
+router.get('/github-config', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const isAdmin = req.user!.role === 'admin';
 
     const config = await prisma.global_config.findUnique({
         where: { config_key: 'github_workflow_config' }
     });
 
-    // Only admins get the PAT, others get null or masked
+    // Final safety check even with middleware
     const githubConfig = config?.config_value as any;
     if (githubConfig && !isAdmin) {
         delete githubConfig.pat;
@@ -39,19 +39,30 @@ router.get('/github-config', authenticate, asyncHandler(async (req: Request, res
 router.get('/runs', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.id;
 
-    const settings = await prisma.user_settings.findUnique({
-        where: { user_id: userId },
-        select: { github_workflow_config: true }
+    // Priority: Global Config
+    const globalConfigRecord = await prisma.global_config.findUnique({
+        where: { config_key: 'github_workflow_config' }
     });
+    let githubConfig = globalConfigRecord?.config_value as any;
 
-    const githubConfig = settings?.github_workflow_config as any;
+    if (!githubConfig || !githubConfig.pat) {
+        // Fallback: User settings
+        const settings = await prisma.user_settings.findUnique({
+            where: { user_id: userId },
+            select: { github_workflow_config: true }
+        });
+        githubConfig = settings?.github_workflow_config as any;
+    }
+
     if (!githubConfig || !githubConfig.pat) {
         return res.status(400).json({ success: false, error: 'GitHub config missing' });
     }
 
+    const workflow = githubConfig.workflow || 'app-builder-trigger.yml';
+
     try {
         const axios = require('axios');
-        const runsUrl = `https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/actions/workflows/${githubConfig.workflow}/runs?per_page=20`;
+        const runsUrl = `https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/actions/workflows/${workflow}/runs?per_page=20`;
         const runsRes = await axios.get(runsUrl, {
             headers: {
                 'Authorization': `Bearer ${githubConfig.pat}`,
@@ -87,12 +98,21 @@ router.post('/runs/:runId/cancel', ...adminOnly, asyncHandler(async (req: Reques
     const userId = req.user!.id;
     const { runId } = req.params;
 
-    const settings = await prisma.user_settings.findUnique({
-        where: { user_id: userId },
-        select: { github_workflow_config: true }
+    // Priority: Global Config
+    const globalConfigRecord = await prisma.global_config.findUnique({
+        where: { config_key: 'github_workflow_config' }
     });
+    let githubConfig = globalConfigRecord?.config_value as any;
 
-    const githubConfig = settings?.github_workflow_config as any;
+    if (!githubConfig || !githubConfig.pat) {
+        // Fallback: User Settings
+        const settings = await prisma.user_settings.findUnique({
+            where: { user_id: userId },
+            select: { github_workflow_config: true }
+        });
+        githubConfig = settings?.github_workflow_config as any;
+    }
+
     if (!githubConfig || !githubConfig.pat) {
         return res.status(400).json({ success: false, error: 'GitHub config missing' });
     }

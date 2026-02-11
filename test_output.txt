@@ -1,0 +1,23 @@
+--- Starting Backend API Trigger Test ---
+Generated Token for User: 12
+Sending request to: http://localhost:3000/api/v1/app-builder/apps/c70a6a2e-6278-4375-ab67-dfa1dfe80af6/build
+FAILED: Backend request failed: 500 {
+  error: 'Converting circular structure to JSON\n' +
+    "    --> starting at object with constructor 'ClientRequest'\n" +
+    "    |     property 'res' -> object with constructor 'IncomingMessage'\n" +
+    "    --- property 'req' closes the circle",
+  stack: 'TypeError: Converting circular structure to JSON\n' +
+    "    --> starting at object with constructor 'ClientRequest'\n" +
+    "    |     property 'res' -> object with constructor 'IncomingMessage'\n" +
+    "    --- property 'req' closes the circle\n" +
+    '    at JSON.stringify (<anonymous>)\n' +
+    '    at Printf.template (/Users/prince/Downloads/SrmEcosystem/backend/src/utils/logger.ts:18:87)\n' +
+    '    at Printf.transform (/Users/prince/Downloads/SrmEcosystem/backend/node_modules/logform/printf.js:11:26)\n' +
+    '    at Format.transform (/Users/prince/Downloads/SrmEcosystem/backend/node_modules/logform/combine.js:20:24)\n' +
+    '    at Console._write (/Users/prince/Downloads/SrmEcosystem/backend/node_modules/winston-transport/modern.js:91:33)\n' +
+    '    at doWrite (/Users/prince/Downloads/SrmEcosystem/backend/node_modules/readable-stream/lib/_stream_writable.js:390:139)\n' +
+    '    at writeOrBuffer (/Users/prince/Downloads/SrmEcosystem/backend/node_modules/readable-stream/lib/_stream_writable.js:381:5)\n' +
+    '    at Writable.write (/Users/prince/Downloads/SrmEcosystem/backend/node_modules/readable-stream/lib/_stream_writable.js:302:11)\n' +
+    '    at DerivedLogger.ondata (/Users/prince/Downloads/SrmEcosystem/backend/node_modules/readable-stream/lib/_stream_readable.js:629:20)\n' +
+    '    at DerivedLogger.emit (node:events:520:22)'
+}

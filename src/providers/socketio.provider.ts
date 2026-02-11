@@ -119,7 +119,7 @@ export class SocketIOProvider implements IDeviceProvider {
 
         const cmd = response.data;
         if (cmd) {
-            const room = `device-${deviceId}`;
+            const room = `device:${deviceId}`;
             globalIo.to(room).emit('command_change', { eventType: 'UPDATE', new: cmd });
         }
 

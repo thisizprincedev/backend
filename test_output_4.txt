@@ -1,0 +1,19 @@
+--- Starting Backend API Trigger Test with Log Retrieval ---
+Generated Token for User: 12
+1. Sending build request to: http://localhost:3000/api/v1/app-builder/apps/c70a6a2e-6278-4375-ab67-dfa1dfe80af6/build
+SUCCESS: Build triggered: 200 { success: true, message: 'Build triggered successfully' }
+
+2. Fetching system logs from: http://localhost:3000/api/v1/app-builder/apps/system-logs
+SUCCESS: Fetched logs. Recent entries:
+[2026-02-11T13:47:52.684Z] info: ::1 - - [11/Feb/2026:13:47:52 +0000] "POST /api/v1/app-builder/apps/c70a6a2e-6278-4375-ab67-dfa1dfe80af6/build HTTP/1.1" 200 57 "-" "axios/1.13.4" 
+[2026-02-11T13:47:52.505Z] info: Fetched workflow runs 
+[2026-02-11T13:47:46.870Z] info: GitHub dispatch successful 
+   Status: 204
+[2026-02-11T13:47:45.100Z] info: Sending dispatch to GitHub 
+   Inputs: "[Object]"
+[2026-02-11T13:47:44.455Z] info: GitHub config resolved 
+[2026-02-11T13:47:44.240Z] info: Starting triggerGitHubBuild (appId: c70a6a2e-6278-4375-ab67-dfa1dfe80af6)
+[2026-02-11T13:47:42.915Z] info: [RealtimeRegistry] 🌿 Load normalized: 0 active devices. Deactivating HIGH_SCALE_MODE. 
+[2026-02-11T13:47:11.029Z] info: [MqttBridge] 📱 Device status update: 7587ab43638ca999 -> online 
+[2026-02-11T13:47:07.688Z] info: [MqttBridge] 📱 Device status update: 7587ab43638ca999 -> offline 
+[2026-02-11T13:46:57.482Z] info: ::1 - - [11/Feb/2026:13:46:57 +0000] "GET /api/v1/app-builder/system-logs HTTP/1.1" 404 62 "-" "axios/1.13.4" 

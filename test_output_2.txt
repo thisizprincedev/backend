@@ -1,0 +1,4 @@
+--- Starting Backend API Trigger Test ---
+Generated Token for User: 12
+Sending request to: http://localhost:3000/api/v1/app-builder/apps/c70a6a2e-6278-4375-ab67-dfa1dfe80af6/build
+SUCCESS: Backend responded with: 200 { success: true, message: 'Build triggered successfully' }

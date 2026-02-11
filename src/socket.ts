@@ -1,6 +1,6 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
-import { createAdapter } from '@socket.io/redis-adapter';
+import { createAdapter } from '@socket.io/redis-streams-adapter';
 import config from './config/env';
 import logger from './utils/logger';
 import redis from './lib/redis';
@@ -16,16 +16,7 @@ export const initSocket = (httpServer: HttpServer): SocketIOServer => {
         return io;
     }
 
-    const pubClient = redis;
-    const subClient = pubClient.duplicate();
-
-    subClient.on('error', (err) => {
-        logger.error(err, 'Redis subClient error:');
-    });
-
-    subClient.on('connect', () => {
-        logger.info('Redis subClient connected');
-    });
+    const streamClient = redis;
 
     io = new SocketIOServer(httpServer, {
         cors: {
@@ -33,7 +24,7 @@ export const initSocket = (httpServer: HttpServer): SocketIOServer => {
             methods: ['GET', 'POST'],
             credentials: true,
         },
-        adapter: createAdapter(pubClient, subClient)
+        adapter: createAdapter(streamClient)
     });
 
     // Socket auth middleware

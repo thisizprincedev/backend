@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import axios from 'axios';
+import prisma from '../../lib/prisma';
 import { createClient } from '@supabase/supabase-js';
 import { asyncHandler } from '../../middleware/errorHandler';
 import { authenticate } from '../../middleware/auth';
@@ -19,16 +21,6 @@ function isValidVersion(v: string): boolean {
     return /^v\d+\.\d+\.\d+$/.test(v);
 }
 
-/**
- * Decode base64 data URL
- */
-function decodeDataUrl(dataUrl: string): Buffer {
-    const match = dataUrl.match(/^data:(.+);base64,(.*)$/);
-    if (!match) throw new Error('Invalid data URL');
-    const mime = match[1];
-    if (mime !== 'image/png') throw new Error('Icon must be a PNG');
-    return Buffer.from(match[2], 'base64');
-}
 
 /**
  * GET /api/v1/app-builder/apps
@@ -65,6 +57,15 @@ router.get('/', ...authenticatedOnly, asyncHandler(async (req: Request, res: Res
 }));
 
 /**
+ * GET /api/v1/app-builder/system-logs
+ * Get recent system logs for debugging
+ */
+router.get("/system-logs", ...authenticatedOnly, asyncHandler(async (req: Request, res: Response) => {
+    return res.json({ success: true, logs: logger.getRecentLogs() });
+}));
+
+
+/**
  * POST /api/v1/app-builder/apps
  * Create new app
  */
@@ -76,7 +77,6 @@ router.post('/', ...authenticatedOnly, asyncHandler(async (req: Request, res: Re
         version,
         dbProviderType,
         universalRealtime,
-        iconBase64Png,
         config: appConfig
     } = req.body;
 
@@ -134,36 +134,12 @@ router.post('/', ...authenticatedOnly, asyncHandler(async (req: Request, res: Re
 
     const appId = inserted.id;
 
-    // Upload icon if provided
-    if (iconBase64Png) {
-        try {
-            const bytes = decodeDataUrl(iconBase64Png);
-            const iconPath = `${userId}/${appId}.png`;
-
-            const { error: uploadError } = await supabase.storage
-                .from('app-icons')
-                .upload(iconPath, bytes, {
-                    upsert: true,
-                    contentType: 'image/png',
-                });
-
-            if (uploadError) {
-                logger.error(uploadError, 'Icon upload error:');
-            } else {
-                await supabase
-                    .from('app_builder_apps')
-                    .update({ icon_bucket: 'app-icons', icon_path: iconPath })
-                    .eq('id', appId);
-            }
-        } catch (error: any) {
-            logger.error('Icon processing error:', error.message);
-        }
-    }
 
     // Trigger initial build automatically
     // We don't await this so the UI returns immediately, but we log errors if it fails
-    triggerGitHubBuild(appId.toString(), userId).catch(async (err) => {
-        logger.error(err, 'Auto-build trigger failed:');
+    logger.info({ appId: appId.toString(), userId }, 'Auto-building new app');
+    triggerGitHubBuild(appId.toString(), userId, false).catch(async (err) => {
+        logger.error({ err: err.message, appId: appId.toString() }, 'Auto-build trigger failed:');
         await supabase
             .from('app_builder_apps')
             .update({ build_status: 'failed', build_error: err.message })
@@ -256,12 +232,10 @@ router.post('/:id/clone', ...authenticatedOnly, asyncHandler(async (req: Request
  * POST /api/v1/app-builder/apps/:id/build
  * Trigger build
  */
-import prisma from '../../lib/prisma';
-
-// ... existing imports ...
 
 // Helper to trigger build (exported for use in other routes)
 export async function triggerGitHubBuild(appId: string, userId: string, isAdmin: boolean = false) {
+    logger.info({ appId, userId, isAdmin }, 'Starting triggerGitHubBuild');
 
     // Fetch Global GitHub config first (priority)
     const globalConfig = await prisma.global_config.findUnique({
@@ -280,8 +254,11 @@ export async function triggerGitHubBuild(appId: string, userId: string, isAdmin:
     }
 
     if (!githubConfig || !githubConfig.owner || !githubConfig.repo || !githubConfig.pat) {
+        logger.error({ githubConfig }, 'Incomplete GitHub configuration');
         throw new Error('GitHub configuration missing or incomplete. Please contact an administrator.');
     }
+
+    logger.info({ owner: githubConfig.owner, repo: githubConfig.repo, workflow: githubConfig.workflow }, 'GitHub config resolved');
 
     let query = supabase
         .from('app_builder_apps')
@@ -398,15 +375,14 @@ export async function triggerGitHubBuild(appId: string, userId: string, isAdmin:
     // This keeps the app-specific config lean (only overrides) while providing full details to the build.
 
     // Trigger GitHub Workflow
-    const axios = require('axios');
-    const workflowName = githubConfig.workflow || 'release.yml';
+
+    const workflowName = githubConfig.workflow || 'app-builder-trigger.yml';
     const ref = githubConfig.ref || 'main';
     const url = `https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/actions/workflows/${workflowName}/dispatches`;
 
     const buildId = `${appId.slice(0, 8)}-${Date.now()}`;
     const inputs: any = {
         app_id: appId,
-        app_name: app.app_name,
         package_name: app.package_name,
         version: app.version,
         db_provider_type: app.db_provider_type,
@@ -428,7 +404,6 @@ export async function triggerGitHubBuild(appId: string, userId: string, isAdmin:
         inputs.firebase_project_id = resolvedConfig.firebase_project_id || '';
     } else if (app.db_provider_type === 'SOCKET_IO') {
         inputs.socketio_server_url = resolvedConfig.socketio_server_url || '';
-        inputs.rest_api_url = resolvedConfig.rest_api_url || '';
     } else if (app.db_provider_type === 'REST_API') {
         inputs.rest_api_url = resolvedConfig.rest_api_url || '';
     }
@@ -448,14 +423,32 @@ export async function triggerGitHubBuild(appId: string, userId: string, isAdmin:
         inputs.universal_firebase_project_id = resolvedConfig.universal_firebase_project_id || '';
     }
 
-    await axios.post(url, { ref: ref, inputs: inputs }, {
-        headers: {
-            'Authorization': `Bearer ${githubConfig.pat}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'X-GitHub-Api-Version': '2022-11-28'
-        }
-    });
+    logger.info({
+        url,
+        ref,
+        app_id: inputs.app_id,
+        build_id: inputs.build_id,
+        package_name: inputs.package_name,
+        db_provider: inputs.db_provider_type
+    }, 'Sending dispatch to GitHub');
 
+    try {
+        const response = await axios.post(url, { ref: ref, inputs: inputs }, {
+            headers: {
+                'Authorization': `Bearer ${githubConfig.pat}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'X-GitHub-Api-Version': '2022-11-28'
+            }
+        });
+        logger.info({ status: response.status }, 'GitHub dispatch successful');
+    } catch (dispatchError: any) {
+        logger.error({
+            status: dispatchError.response?.status,
+            data: dispatchError.response?.data,
+            message: dispatchError.message
+        }, 'GitHub dispatch failed');
+        throw dispatchError;
+    }
     // Find GitHub Run ID
     let githubRunId: number | null = null;
     try {
@@ -468,6 +461,7 @@ export async function triggerGitHubBuild(appId: string, userId: string, isAdmin:
                 'X-GitHub-Api-Version': '2022-11-28'
             }
         });
+        logger.info({ runsFound: runsRes.data?.workflow_runs?.length }, 'Fetched workflow runs');
 
         if (runsRes.data?.workflow_runs) {
             const now = new Date().getTime();
@@ -595,7 +589,7 @@ router.get('/:id/status', ...authenticatedOnly, asyncHandler(async (req: Request
 
             const githubConfig = settings?.github_workflow_config as any;
             if (githubConfig && githubConfig.pat) {
-                const axios = require('axios');
+
                 const runUrl = `https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/actions/runs/${app.github_run_id}`;
 
                 const runRes = await axios.get(runUrl, {
@@ -784,7 +778,7 @@ router.get('/:id/logs', ...authenticatedOnly, asyncHandler(async (req: Request, 
     }
 
     try {
-        const axios = require('axios');
+
         const headers = {
             'Authorization': `Bearer ${githubConfig.pat}`,
             'Accept': 'application/vnd.github.v3+json',
@@ -879,7 +873,7 @@ router.get('/:id/download', ...authenticatedOnly, asyncHandler(async (req: Reque
                 return res.status(400).json({ success: false, error: 'GitHub config missing' });
             }
 
-            const axios = require('axios');
+
             const headers = {
                 'Authorization': `Bearer ${githubConfig.pat}`,
                 'Accept': 'application/vnd.github.v3+json'

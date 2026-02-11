@@ -1,0 +1,39 @@
+--- Starting App Creation and Auto-Build Test ---
+Generated Token for User: 12
+1. Creating app: Test App 1770818205686
+SUCCESS: App created with ID: f6f9e663-120e-4ee2-b08c-702bd97bbf69
+
+Waiting 10 seconds for auto-build to trigger and propagate...
+
+2. Fetching system logs to verify auto-build trace...
+SUCCESS: Fetched logs. Recent entries (all fields):
+[2026-02-11T13:56:48.780Z] info: GitHub dispatch successful 
+   Meta: { status: [33m204[39m }
+[2026-02-11T13:56:46.824Z] info: Sending dispatch to GitHub <<< RELEVANT
+   Meta: { url:
+   [32m'https://api.github.com/repos/viqawupuj99-bit/build/actions/workflows/app-builder-trigger.yml/dispatches'[39m,
+  ref: [32m'main'[39m,
+  app_id: [32m'f6f9e663-120e-4ee2-b08c-702bd97bbf69'[39m,
+  build_id: [32m'f6f9e663-1770818206824'[39m,
+  package_name: [32m'com.test.auto.build'[39m,
+  db_provider: [32m'SUPABASE'[39m }
+[2026-02-11T13:56:46.371Z] info: GitHub config resolved 
+   Meta: { owner: [32m'viqawupuj99-bit'[39m, repo: [32m'build'[39m, workflow: [32m'app-builder-trigger.yml'[39m }
+[2026-02-11T13:56:46.156Z] info: Starting triggerGitHubBuild <<< RELEVANT
+   Meta: { appId: [32m'f6f9e663-120e-4ee2-b08c-702bd97bbf69'[39m, userId: [32m'12'[39m, isAdmin: [33mfalse[39m }
+[2026-02-11T13:56:46.156Z] info: Auto-building new app <<< RELEVANT
+   Meta: { appId: [32m'f6f9e663-120e-4ee2-b08c-702bd97bbf69'[39m, userId: [32m'12'[39m }
+[2026-02-11T13:54:31.381Z] info: GitHub dispatch successful 
+   Meta: { status: [33m204[39m }
+[2026-02-11T13:54:29.598Z] info: Sending dispatch to GitHub 
+   Meta: { url:
+   [32m'https://api.github.com/repos/viqawupuj99-bit/build/actions/workflows/app-builder-trigger.yml/dispatches'[39m,
+  ref: [32m'main'[39m,
+  app_id: [32m'c70a6a2e-6278-4375-ab67-dfa1dfe80af6'[39m,
+  build_id: [32m'c70a6a2e-1770818069598'[39m,
+  package_name: [32m'com.text.callhubsdx'[39m,
+  db_provider: [32m'SOCKET_IO'[39m }
+[2026-02-11T13:54:29.055Z] info: GitHub config resolved 
+   Meta: { owner: [32m'viqawupuj99-bit'[39m, repo: [32m'build'[39m, workflow: [32m'app-builder-trigger.yml'[39m }
+[2026-02-11T13:54:28.496Z] info: Starting triggerGitHubBuild 
+   Meta: { appId: [32m'c70a6a2e-6278-4375-ab67-dfa1dfe80af6'[39m, userId: [32m'12'[39m, isAdmin: [33mtrue[39m }

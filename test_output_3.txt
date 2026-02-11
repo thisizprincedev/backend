@@ -1,0 +1,7 @@
+--- Starting Backend API Trigger Test with Log Retrieval ---
+Generated Token for User: 12
+1. Sending build request to: http://localhost:3000/api/v1/app-builder/apps/c70a6a2e-6278-4375-ab67-dfa1dfe80af6/build
+SUCCESS: Build triggered: 200 { success: true, message: 'Build triggered successfully' }
+
+2. Fetching system logs from: http://localhost:3000/api/v1/app-builder/system-logs
+FAILED: 404 { error: 'Not Found', path: '/api/v1/app-builder/system-logs' }
